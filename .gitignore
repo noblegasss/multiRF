@@ -9,3 +9,6 @@
 *.dll
 *.a
 *.Rcheck/
+src/symbols.rds
+/doc/
+/Meta/

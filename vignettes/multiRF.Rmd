@@ -1,0 +1,352 @@
+---
+title: "Getting Started with multiRF"
+author: "Wei Zhang"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting Started with multiRF}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 6,
+  fig.height = 4.5,
+  fig.align = "center",
+  eval = FALSE,
+  message = FALSE,
+  warning = FALSE
+)
+
+library(multiRF)
+data("tcga_brca", package = "multiRF", envir = knitr::knit_global())
+data("tcga_brca_clinical", package = "multiRF", envir = knitr::knit_global())
+```
+
+## Overview
+
+`multiRF` provides a workflow for integrating matched multi-omics datasets with
+random forests, MRF-style weighting, clustering, and downstream summaries.
+
+The typical workflow is:
+
+1. Prepare a named list of omics matrices with matched samples.
+2. Run `mrf3()` to fit the integration model and produce cluster labels.
+3. Inspect weights, selected variables, and cluster assignments.
+4. Use plotting helpers for survival and embedding diagnostics.
+
+The package exposes two main entry points:
+
+- `mrf3()` for a compact end-to-end workflow with the most common arguments.
+- `mrf3_fit()` for a stage-based workflow where IMD, variable selection, and
+  robust clustering can be turned on explicitly.
+
+## Method Maps
+
+### Clustering choices
+
+| Setting | Scope | Typical use |
+|---------|-------|-------------|
+| `similarity` | Global `main_clustering` | Default fused-similarity workflow; best starting point. |
+| `proximity` | Global `main_clustering` | Use when RF proximity is the main object of interest. |
+| `enhanced_proximity` | Global `main_clustering` | Aggressive proximity-based branch. |
+| `PAM` | Shared or specific branch | Medoid-based clustering. |
+| `Spectral` | Shared or specific branch | Similarity geometry-based clustering. |
+| `Proximity` | Specific branch | Block-specific proximity alternative. |
+| `Enhanced_Proximity` | Specific branch | Stronger proximity clustering for specific branches. |
+
+### Variable-selection choices
+
+| Method | Signal model | Typical use |
+|--------|-------------|-------------|
+| `filter` | Heuristic threshold | Good baseline for a practical first pass. |
+| `test` | Significance-style | Hypothesis-testing flavor for weight selection. |
+| `mixture` | Signal/noise mixture | When weights separate into background and enriched components. |
+
+### Plotting choices
+
+| Function | Input focus | Typical question |
+|----------|------------|-----------------|
+| `plot_tsne()` | Similarity or reconstruction | Do clusters separate in a nonlinear embedding? |
+| `plot_umap()` | Similarity or reconstruction | Is there robust manifold structure? |
+| `plot_embed()` | Matrix-based quick embedding | Quick overview before deeper plotting? |
+| `plot_heatmap()` | Similarity or fused block | Are samples or blocks visibly separated? |
+| `plot_network()` | Similarity graph | Which sample relations dominate? |
+| `plot_weights()` | IMD or cluster-IMD weights | Which features drive the result? |
+| `plot_circos()` | Adjacency-like structure | How are modules connected globally? |
+| `plot_km()` | Cluster labels plus clinical | Do clusters differ in survival? |
+
+## Example Data
+
+This vignette uses the bundled TCGA BRCA data shipped with the package:
+
+```{r example-data}
+names(tcga_brca)
+dim(tcga_brca$gene)
+dim(tcga_brca$methy)
+dim(tcga_brca$mirna)
+```
+
+Each block is a matrix-like data frame with samples in rows and features in
+columns. Sample order should already be aligned across omics blocks before
+fitting.
+
+## Basic Clustering Workflow
+
+For a standard clustering run, `mrf3()` is the simplest interface. It fits the
+initial forests, learns block connections, reconstructs fused similarity
+information, and returns cluster labels in a single call.
+
+### Fitting the main workflow
+
+The recommended entry point is `mrf3()`. We use `ntree = 50` here for speed
+in vignette builds; in practice 300--500 trees are typical.
+
+```{r fit-main, cache=TRUE}
+fit <- mrf3(
+  tcga_brca,
+  k = 4,
+  ntree = 50,
+  filter_mode = "none",
+  run_imd = TRUE,
+  seed = 529
+)
+```
+
+Once fitted, inspect the result:
+
+```{r inspect-fit}
+summary(fit)
+table(get_clusters(fit))
+names(get_weights(fit))
+get_top_vars(fit, n = 10)
+```
+
+The returned object is an `mrf3_fit`. The most important fields for a basic
+clustering analysis are:
+
+- `fit$clusters`: main cluster assignments.
+- `fit$connection`: learned directional block connections.
+- `fit$model_top_v` and `fit$fused_top_v`: tuned sparsity levels.
+- `fit$reconstruction`: reconstructed similarity and weight objects.
+- `fit$shared` and `fit$specific`: shared/specific branch results.
+
+### Choosing the main clustering backend
+
+The global clustering backend is controlled by `main_clustering`. This setting
+is propagated consistently through the shared, specific, and robust branches.
+
+```{r clustering-backends, cache=TRUE}
+fit_similarity <- mrf3(
+  tcga_brca,
+  k = 4,
+  main_clustering = "similarity",
+  ntree = 50,
+  seed = 529
+)
+
+fit_proximity <- mrf3(
+  tcga_brca,
+  k = 4,
+  main_clustering = "proximity",
+  ntree = 50,
+  seed = 529
+)
+```
+
+In practice:
+
+- `"similarity"` is the default and the most natural choice when you want
+  clustering based on fused similarity matrices.
+- `"proximity"` uses random forest proximities more directly.
+- `"enhanced_proximity"` is useful when you want a proximity-based branch with
+  extra refinement.
+
+## Comparing Cluster Assignments Against PAM50
+
+The bundled clinical data includes PAM50 molecular subtypes, which provide a
+natural external reference for evaluating cluster quality:
+
+```{r cluster-vs-pam50}
+common_ids <- intersect(
+  names(get_clusters(fit)),
+  tcga_brca_clinical$sampleID
+)
+pam50 <- tcga_brca_clinical$BRCA_Subtype_PAM50[
+  match(common_ids, tcga_brca_clinical$sampleID)
+]
+
+# Compare main clusters vs PAM50
+cluster_metrics(get_clusters(fit)[common_ids], pam50)
+```
+
+Compare multiple clustering solutions side by side:
+
+```{r compare-backends}
+cluster_metric_matrix(
+  list(
+    similarity = get_clusters(fit_similarity)[common_ids],
+    proximity  = get_clusters(fit_proximity)[common_ids],
+    PAM50      = pam50
+  ),
+  metric = "ari"
+)
+```
+
+## Variable Selection Workflow
+
+Variable selection is driven by IMD weights, so the usual pattern is to run IMD
+and then enable `run_variable_selection = TRUE`.
+
+```{r vs-workflow, cache=TRUE}
+fit_vs <- mrf3_fit(
+  dat.list = tcga_brca,
+  k = 4,
+  ntree = 50,
+  run_imd = TRUE,
+  run_variable_selection = TRUE,
+  variable_selection_args = list(
+    method = "mixture",
+    level = 0.05,
+    normalized = TRUE
+  ),
+  seed = 529
+)
+```
+
+After this stage, the key outputs are:
+
+- `fit_vs$selected_vars`: selected features per omics block.
+- `fit_vs$selected_data`: filtered data matrices restricted to selected variables.
+- `fit_vs$vs_summary`: block-level summary table for total vs selected features.
+
+Typical inspection code:
+
+```{r vs-inspect}
+get_selected_vars(fit_vs)
+get_vs_summary(fit_vs)
+```
+
+You can also call `mrf3_vs()` directly on an existing fit when you want to
+experiment with different selection rules:
+
+```{r vs-direct, cache=TRUE}
+vs_filter <- mrf3_vs(
+  mod = fit,
+  dat.list = tcga_brca,
+  method = "filter",
+  re_fit = FALSE,
+  normalized = TRUE
+)
+
+print(vs_filter)
+```
+
+### Running all methods side by side
+
+```{r vs-all-methods, cache=TRUE}
+vs_test <- mrf3_vs(mod = fit, dat.list = tcga_brca,
+                   method = "test", re_fit = FALSE, level = 0.05)
+vs_mixture <- mrf3_vs(mod = fit, dat.list = tcga_brca,
+                      method = "mixture", re_fit = FALSE, level = 0.05)
+
+lapply(
+  list(filter = vs_filter, test = vs_test,
+       mixture = vs_mixture),
+  get_selected_vars
+)
+```
+
+## Robust Clustering Workflow
+
+Robust clustering first performs variable selection and then reclusters the
+selected representation.
+
+```{r robust-workflow, cache=TRUE}
+fit_robust <- mrf3_fit(
+  dat.list = tcga_brca,
+  k = 4,
+  ntree = 50,
+  run_imd = TRUE,
+  run_variable_selection = TRUE,
+  run_robust_clustering = TRUE,
+  variable_selection_args = list(method = "mixture"),
+  seed = 529
+)
+```
+
+```{r robust-inspect}
+table(fit_robust$robust_clusters)
+summary(fit_robust)
+```
+
+## Plotting Recipes
+
+Most visualization helpers can work directly from an `mrf3_fit` object. The
+`source` argument selects which matrix or branch to visualize.
+
+### Weight plots
+
+Weight plots are the quickest way to see which features dominate each block.
+
+```{r plot-weights, fig.width=7, fig.height=5}
+plot_weights(fit_vs, weight_source = "imd", top = 15)
+```
+
+### Heatmaps
+
+```{r plot-heatmap, fig.width=7, fig.height=6}
+plot_heatmap(
+  dat = fit,
+  group = get_clusters(fit),
+  source = "specific_shared"
+)
+```
+
+### Survival Analysis
+
+`plot_km()` provides a convenience wrapper for Kaplan-Meier plots:
+
+```{r survival, fig.width=6, fig.height=5}
+clinical_ids <- tcga_brca_clinical$sampleID
+common_ids <- intersect(names(get_clusters(fit)), clinical_ids)
+clinical_sub <- tcga_brca_clinical[match(common_ids, clinical_ids), , drop = FALSE]
+
+km <- plot_km(
+  test_var = get_clusters(fit)[common_ids],
+  time_var = "OS.time",
+  event_var = "OS",
+  pheno_mat = clinical_sub
+)
+
+km
+```
+
+## Recommended Workflow Patterns
+
+For practical use, the following patterns are usually enough:
+
+- Start with `mrf3()` when the goal is just clustering plus a quick read of
+  the weights.
+- Move to `mrf3_fit(run_imd = TRUE, run_variable_selection = TRUE)` when you
+  want a reduced feature set.
+- Add `run_robust_clustering = TRUE` when your final result should be based on
+  selected variables rather than the initial full representation.
+- Use the `source` argument in plotting functions to decide which branch or
+  reconstruction object to visualize.
+
+## Notes
+
+- Keep sample order matched across omics blocks before fitting.
+- Use `filter_omics()` for explicit pre-filtering before model fitting.
+- For pairwise clustering comparisons, see `cluster_metrics()` and
+  `cluster_metric_matrix()`.
+
+## Session Info
+
+```{r session-info}
+sessionInfo()
+```

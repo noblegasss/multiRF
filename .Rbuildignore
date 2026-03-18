@@ -6,6 +6,7 @@
 ^\.DS_Store$
 ^\.\.Rcheck$
 ^src/.*\.(o|so|dll|a)$
+^src/symbols\.rds$
 ^README\.Rmd$
 ^CODEBASE_REVIEW\.md$
 ^docs$
@@ -13,3 +14,5 @@
 ^tools$
 ^multiRF\.Rcheck$
 ^.*\.tar\.gz$
+^doc$
+^Meta$
