@@ -8,6 +8,7 @@
 ^src/.*\.(o|so|dll|a)$
 ^README\.Rmd$
 ^CODEBASE_REVIEW\.md$
+^docs$
 ^review$
 ^tools$
 ^multiRF\.Rcheck$

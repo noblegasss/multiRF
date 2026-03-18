@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>multiRF Documentation</title>
+  <meta name="description" content="Web documentation for the multiRF package: clustering, variable selection, robust clustering, and plotting workflows.">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="hero-card">
+        <div class="hero-kicker">multiRF Web Guide</div>
+        <h1>Multi-Omics Integration in a Browser-Friendly Format</h1>
+        <p>
+          This page is the web version of the package vignette. It focuses on how to run
+          clustering, compare variable-selection strategies, fit robust clustering branches,
+          and use the plotting helpers beyond survival curves.
+        </p>
+      </div>
+      <div class="hero-meta">
+        <div class="meta-item">
+          <strong>Repository</strong>
+          <span><a href="https://github.com/noblegasss/multiRF">github.com/noblegasss/multiRF</a></span>
+        </div>
+        <div class="meta-item">
+          <strong>Main Entry Points</strong>
+          <span><code>mrf3()</code>, <code>mrf3_fit()</code>, <code>mrf3_vs()</code>, <code>mrf3_stability()</code></span>
+        </div>
+        <div class="meta-item">
+          <strong>Bundled Example</strong>
+          <span><code>tcga_brca</code> and <code>tcga_brca_clinical</code></span>
+        </div>
+      </div>
+    </section>
+
+    <div class="layout">
+      <aside class="toc">
+        <strong>Contents</strong>
+        <ul>
+          <li><a href="#installation">Installation</a></li>
+          <li><a href="#data">Bundled Data</a></li>
+          <li><a href="#cluster">Clustering Workflows</a></li>
+          <li><a href="#vs">Variable Selection Methods</a></li>
+          <li><a href="#robust">Robust Clustering</a></li>
+          <li><a href="#plots">Plotting Functions</a></li>
+          <li><a href="#comparison">Method Comparison</a></li>
+        </ul>
+      </aside>
+
+      <main class="content">
+        <section class="panel" id="installation">
+          <h2>Installation</h2>
+          <pre><code>remotes::install_github("noblegasss/multiRF")</code></pre>
+        </section>
+
+        <section class="panel" id="data">
+          <h2>Bundled Data</h2>
+          <p>The package vignette and examples use the bundled TCGA BRCA data.</p>
+          <pre><code>library(multiRF)
+data("tcga_brca")
+data("tcga_brca_clinical")
+
+names(tcga_brca)
+dim(tcga_brca$gene)
+dim(tcga_brca$methy)
+dim(tcga_brca$mirna)</code></pre>
+          <div class="callout">
+            Samples should already be aligned across blocks. The expected structure is one
+            named list of omics matrices with samples in rows and features in columns.
+          </div>
+        </section>
+
+        <section class="panel" id="cluster">
+          <h2>Clustering Workflows</h2>
+          <p><code>mrf3()</code> is the compact entry point. Use it when you want the standard workflow without exposing every stage manually.</p>
+          <pre><code>fit <- mrf3(
+  tcga_brca,
+  k = 4,
+  ntree = 100,
+  filter_mode = "none",
+  run_imd = TRUE,
+  seed = 529
+)</code></pre>
+
+          <h3>Inspect the fitted object</h3>
+          <pre><code>summary(fit)
+table(get_clusters(fit))
+names(get_weights(fit))
+get_top_vars(fit, n = 10)</code></pre>
+
+          <h3>Compare clustering backends</h3>
+          <div class="grid-2">
+            <div>
+              <strong>Similarity</strong>
+              <pre><code>fit_similarity <- mrf3(
+  tcga_brca,
+  k = 4,
+  main_clustering = "similarity",
+  ntree = 100,
+  seed = 529
+)</code></pre>
+            </div>
+            <div>
+              <strong>Proximity</strong>
+              <pre><code>fit_proximity <- mrf3(
+  tcga_brca,
+  k = 4,
+  main_clustering = "proximity",
+  ntree = 100,
+  seed = 529
+)</code></pre>
+            </div>
+          </div>
+          <pre><code>fit_enhanced <- mrf3(
+  tcga_brca,
+  k = 4,
+  main_clustering = "enhanced_proximity",
+  ntree = 100,
+  seed = 529
+)</code></pre>
+
+          <div class="chip-list">
+            <span class="chip">similarity = default fused similarity view</span>
+            <span class="chip">proximity = forest-proximity-driven branch</span>
+            <span class="chip">enhanced_proximity = refined proximity branch</span>
+          </div>
+        </section>
+
+        <section class="panel" id="vs">
+          <h2>Variable Selection Methods</h2>
+          <p>Variable selection is driven by IMD weights, so the normal pattern is to run IMD first and then enable the variable-selection stage.</p>
+          <pre><code>fit_vs <- mrf3_fit(
+  dat.list = tcga_brca,
+  k = 4,
+  ntree = 200,
+  run_imd = TRUE,
+  run_variable_selection = TRUE,
+  variable_selection_args = list(
+    method = "mixture",
+    level = 0.05,
+    normalized = TRUE
+  ),
+  seed = 529
+)</code></pre>
+
+          <h3>Compare selection rules</h3>
+          <div class="grid-2">
+            <div>
+              <strong>Filter</strong>
+              <pre><code>vs_filter <- mrf3_vs(
+  mod = fit,
+  dat.list = tcga_brca,
+  method = "filter",
+  re_fit = FALSE
+)</code></pre>
+            </div>
+            <div>
+              <strong>Test</strong>
+              <pre><code>vs_test <- mrf3_vs(
+  mod = fit,
+  dat.list = tcga_brca,
+  method = "test",
+  re_fit = FALSE,
+  level = 0.05
+)</code></pre>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div>
+              <strong>Mixture</strong>
+              <pre><code>vs_mixture <- mrf3_vs(
+  mod = fit,
+  dat.list = tcga_brca,
+  method = "mixture",
+  re_fit = FALSE,
+  level = 0.05
+)</code></pre>
+            </div>
+            <div>
+              <strong>Threshold</strong>
+              <pre><code>vs_thres <- mrf3_vs(
+  mod = fit,
+  dat.list = tcga_brca,
+  method = "thres",
+  re_fit = FALSE,
+  se = 1
+)</code></pre>
+            </div>
+          </div>
+
+          <pre><code>get_selected_vars(fit_vs)
+get_data(fit_vs, which = "selected")
+get_vs_summary(fit_vs)</code></pre>
+        </section>
+
+        <section class="panel" id="robust">
+          <h2>Robust Clustering</h2>
+          <p>Robust clustering means selecting variables first and then reclustering on the reduced representation.</p>
+          <pre><code>fit_robust <- mrf3_fit(
+  dat.list = tcga_brca,
+  k = 4,
+  ntree = 200,
+  run_imd = TRUE,
+  run_variable_selection = TRUE,
+  run_robust_clustering = TRUE,
+  variable_selection_args = list(method = "mixture"),
+  seed = 529
+)</code></pre>
+
+          <pre><code>table(fit_robust$robust_clusters)
+summary(fit_robust)</code></pre>
+
+          <h3>Stability under resampling</h3>
+          <pre><code>stab <- mrf3_stability(
+  fit_robust,
+  branches = c("specific_shared", "robust_clustering"),
+  n_rep = 20,
+  sample_frac = 0.8,
+  sample_mode = "subsample",
+  run_consensus = TRUE,
+  seed = 529
+)</code></pre>
+        </section>
+
+        <section class="panel" id="plots">
+          <h2>Plotting Functions</h2>
+          <p>The package has several plotting helpers. Survival is only one of them.</p>
+
+          <h3>Embedding plots</h3>
+          <pre><code>plot_tsne(
+  mod = fit,
+  group = get_clusters(fit),
+  source = "specific_shared",
+  main = "t-SNE of shared/specific branch"
+)
+
+plot_umap(
+  mod = fit_robust,
+  group = fit_robust$robust_clusters,
+  source = "robust_clustering",
+  main = "UMAP of robust clustering branch"
+)</code></pre>
+
+          <h3>Heatmap and network</h3>
+          <pre><code>plot_heatmap(
+  dat = fit,
+  group = get_clusters(fit),
+  source = "specific_shared"
+)
+
+plot_network(
+  dat = fit,
+  group = get_clusters(fit),
+  source = "specific_shared",
+  cutoff = 0.3
+)</code></pre>
+
+          <h3>Weights</h3>
+          <pre><code>plot_weights(
+  fit_vs,
+  weight_source = "imd",
+  top = 15
+)
+
+plot_weights(
+  fit_robust,
+  weight_source = "cluster_imd",
+  cluster = 1,
+  top = 15
+)</code></pre>
+
+          <h3>Reconstruction-aware views</h3>
+          <pre><code>plot_heatmap(
+  dat = fit,
+  source = "reconstruction_fused_block",
+  omics = "gene"
+)
+
+plot_tsne(
+  mod = fit,
+  group = get_clusters(fit),
+  source = "reconstruction_fused_block",
+  omics = "gene"
+)</code></pre>
+
+          <h3>Survival</h3>
+          <pre><code>clinical_ids <- tcga_brca_clinical$sampleID
+common_ids <- intersect(names(get_clusters(fit)), clinical_ids)
+clinical_sub <- tcga_brca_clinical[match(common_ids, clinical_ids), , drop = FALSE]
+
+plot_km(
+  test_var = get_clusters(fit)[common_ids],
+  time_var = "OS.time",
+  event_var = "OS",
+  pheno_mat = clinical_sub
+)</code></pre>
+        </section>
+
+        <section class="panel" id="comparison">
+          <h2>Method Comparison Cheatsheet</h2>
+          <div class="grid-2">
+            <div>
+              <h3>Clustering choices</h3>
+              <ul>
+                <li><code>similarity</code> is the cleanest default when you want fused similarity matrices to drive clustering.</li>
+                <li><code>proximity</code> is appropriate when you want to stay closer to random forest proximity information.</li>
+                <li><code>enhanced_proximity</code> is the aggressive proximity-based option.</li>
+                <li>For branch-specific evaluation, inspect both <code>fit$clusters</code> and <code>fit$robust_clusters</code>.</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Variable selection choices</h3>
+              <ul>
+                <li><code>filter</code> is a practical baseline.</li>
+                <li><code>test</code> is useful when you want significance-style selection.</li>
+                <li><code>mixture</code> is useful when weights look like a signal/noise mixture.</li>
+                <li><code>thres</code> is the most direct threshold-driven option.</li>
+              </ul>
+            </div>
+          </div>
+
+          <pre><code>cluster_metric_matrix(
+  list(
+    main = get_clusters(fit),
+    robust = fit_robust$robust_clusters
+  ),
+  metric = "ari"
+)</code></pre>
+        </section>
+
+        <div class="footer">
+          This page is a static web companion to the package vignette. If you enable GitHub Pages
+          from the <code>docs/</code> folder, it can be served directly as project documentation.
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

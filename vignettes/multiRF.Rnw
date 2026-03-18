@@ -421,8 +421,8 @@ clinical_sub <- tcga_brca_clinical[match(common_ids, clinical_ids), , drop = FAL
 
 km <- plot_km(
   test_var = get_clusters(fit)[common_ids],
-  time_var = "OS_Time_nature2012",
-  event_var = "OS_event_nature2012",
+  time_var = "OS.time",
+  event_var = "OS",
   pheno_mat = clinical_sub
 )
 

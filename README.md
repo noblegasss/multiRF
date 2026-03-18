@@ -7,10 +7,10 @@ and MRF-style weighting across modalities.
 
 ```r
 # after publishing to GitHub
-remotes::install_github("<user>/multiRF")
+remotes::install_github("noblegasss/multiRF")
 
 # or install from a local checkout
-pak::pak("/path/to/multiRF")
+pak::pak(".")
 ```
 
 ## Quick Start
@@ -77,8 +77,8 @@ clinical_sub <- tcga_brca_clinical[match(common_ids, clinical_ids), , drop = FAL
 
 km <- plot_km(
   test_var = fit$clusters[common_ids],
-  time_var = "OS_Time_nature2012",
-  event_var = "OS_event_nature2012",
+  time_var = "OS.time",
+  event_var = "OS",
   pheno_mat = clinical_sub
 )
 
