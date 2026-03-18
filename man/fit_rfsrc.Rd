@@ -14,10 +14,18 @@ fit_rfsrc(
   forest.wt = "all",
   proximity = "all",
   ytry = NULL,
+  seed = -10,
   ...
 )
 
-fit_multi_rfsrc(dat.list, connect_list = NULL, var.wt = NULL, yprob = 1, ...)
+fit_multi_rfsrc(
+  dat.list,
+  connect_list = NULL,
+  var.wt = NULL,
+  yprob = 1,
+  seed = -10,
+  ...
+)
 }
 \arguments{
 \item{X}{A data frame that consider as predictor set}
@@ -36,16 +44,20 @@ Can select from "all", "inbag", "oob", TRUE, or FALSE. Setting forest.wt = TRUE 
 \item{proximity}{rfsrc parameter. Proximity of cases as measured by the frequency of sharing the same terminal node. This is an nxn matrix, which can be large.
 Choices are inbag, oob, all, TRUE, or FALSE. Setting proximity = TRUE is equivalent to proximity = "inbag". The default is "all".}
 
-\item{ytry}{The number of randomly selected pseudo-outcomes for
-    unsupervised families (see details below).  Default is
-    \code{ytry}=1.}
+\item{ytry}{Optional \code{ytry} value passed to \code{randomForestSRC::rfsrc()}.}
 
-\item{...}{Further arguments passed to or from other methods.}
+\item{seed}{Random seed passed to \code{randomForestSRC::rfsrc()}.}
 
-\item{dat.list}{A list that contains multi-omics datasets with samples in columns and features in rows. Samples should be matched in each dataset.}
+\item{...}{Additional arguments passed to \code{randomForestSRC::rfsrc()}.}
 
-\item{connect_list}{A pre-defined connection list between datasets. If provided, variable selection will be conducted based on this connection list.
-If not provided, the algorithm will find the optimal connection between datasets.}
+\item{dat.list}{A list that contains multi-omics datasets with samples in rows and features in columns. Samples should be matched in each dataset.}
+
+\item{connect_list}{A pre-defined connection list between datasets. If \code{NULL},
+all directed pairwise connections are enumerated.}
+
+\item{var.wt}{Optional variable-weight list aligned with \code{dat.list}.}
+
+\item{yprob}{Proportion of response variables used for tuning \code{ytry}.}
 }
 \value{
 A model list

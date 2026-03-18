@@ -7,15 +7,48 @@
 get_imp_forest(
   mod,
   parallel = T,
+  robust = F,
   calc = "Both",
   weighted = F,
   use_depth = F,
   normalized = F,
-  lambda = 1,
   w = NULL,
   yprob = 1,
-  cores = detectCores() - 2
+  cores = max(1, detectCores() - 2),
+  seed = -5,
+  permute = T,
+  nperm = 10,
+  alpha = 0.05
 )
+}
+\arguments{
+\item{mod}{A fitted randomForestSRC model.}
+
+\item{parallel}{Logical; whether to parallelize across trees.}
+
+\item{robust}{Logical; whether to use robust matrix-based aggregation.}
+
+\item{calc}{Which importance side to compute: \code{"X"}, \code{"Y"}, or \code{"Both"}.}
+
+\item{weighted}{Logical; whether to use weighted importance updates.}
+
+\item{use_depth}{Logical; whether to aggregate non-zero depths instead of simple mean.}
+
+\item{normalized}{Logical; whether to l2-normalize returned importance.}
+
+\item{w}{Optional case weights.}
+
+\item{yprob}{Response sampling proportion used in node-level updates.}
+
+\item{cores}{Number of CPU cores used when \code{parallel = TRUE}.}
+
+\item{seed}{Random seed passed to stochastic components.}
+
+\item{permute}{Logical; whether to use permutation testing in robust updates.}
+
+\item{nperm}{Number of permutations per node when \code{permute = TRUE}.}
+
+\item{alpha}{Significance level for permutation filtering.}
 }
 \description{
 Get forest importance

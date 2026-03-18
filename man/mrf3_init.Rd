@@ -10,21 +10,20 @@ mrf3_init(
   scale = T,
   yprob = 0.5,
   connect_list = NULL,
-  var_prop = 0.6,
-  direct = T,
-  keep_prop = NULL,
-  lambda = 1,
-  normalized = F,
-  use_depth = F,
-  calc = "Both",
-  parallel = T,
+  filter_mode = c("auto", "none", "manual"),
+  filter_method = c("mad", "variance"),
+  top_n_by_type = NULL,
+  top_n_manual = NULL,
+  filter_verbose = T,
   return_data = F,
-  cores = detectCores() - 2,
+  sub_mrf = FALSE,
+  sub_mrf_args = list(),
+  seed = 529,
   ...
 )
 }
 \arguments{
-\item{dat.list}{A list containing multi-omics datasets with samples in columns and features in rows. Samples should be matched across datasets.}
+\item{dat.list}{A list containing multi-omics datasets with samples in rows and features in columns.}
 
 \item{ntree}{Number of trees for fitting MRF model. Default is 300.}
 
@@ -32,29 +31,39 @@ mrf3_init(
 
 \item{yprob}{Probability of response features being selected in each node split. Default is 0.5.}
 
-\item{connect_list}{Pre-defined connection list between datasets. If provided, variable selection uses this list. If not, the algorithm finds optimal connections between datasets.}
+\item{connect_list}{Optional pre-defined connection list. If \code{NULL}, the
+function fits all directed pairwise models first, then uses \code{find_connection()}
+to select one direction per omics pair.}
 
-\item{var_prop}{Proportion of variance explained by PC datasets when finding optimal connections. Default is 0.6.}
+\item{filter_mode}{Feature filtering mode passed to \code{filter_omics()}:
+\code{"auto"}, \code{"none"}, or \code{"manual"}.}
 
-\item{direct}{Logical; determines whether to keep both directions in the connection list for optimal connections.}
+\item{filter_method}{Feature dispersion metric passed to \code{filter_omics()}:
+\code{"mad"} or \code{"variance"}.}
 
-\item{lambda}{Penalizes variables selected only once in a tree. Experimental parameter. Default is 1.}
+\item{top_n_by_type}{Optional auto-filter overrides passed to \code{filter_omics()}.}
 
-\item{normalized}{Logical; determines whether to use normalized variable weights. Default is TRUE.}
+\item{top_n_manual}{Optional manual top-n configuration passed to \code{filter_omics()}.}
 
-\item{use_depth}{Logical; determines whether to compute the average IMD selected in a tree. Default is FALSE.}
-
-\item{calc}{Select which weights to calculate: "X", "Y", or "Both". Use when fewer than two datasets are in the model. Default is "Both".}
-
-\item{parallel}{Logical; determines whether to use parallel computation for weight calculation.}
+\item{filter_verbose}{Logical; whether to print filtering diagnostics.}
 
 \item{return_data}{Whether to return the data list. Default is FALSE.}
 
-\item{cores}{Number of cores to use for computation.}
+\item{sub_mrf}{Logical; if \code{TRUE}, uses \code{fit_sub_multi_rfsrc()} instead of
+\code{fit_multi_rfsrc()} for the final model fit.  This sub-samples response and
+predictor features per connection, fits smaller MRFs, and averages the
+resulting n x n matrices.  Useful when p is large.  Default is \code{FALSE}.}
 
-\item{...}{Further arguments passed to or from other methods.}
+\item{sub_mrf_args}{Named list of arguments forwarded to
+\code{fit_sub_multi_rfsrc()} when \code{sub_mrf = TRUE}.  Common options:
+\code{n_sub} (number of replicates, default 15), \code{frac_response} (default 0.2),
+\code{frac_predictor} (default 0.2), \code{ntree_per_sub} (default 25),
+\code{min_response_for_sub} (default 500; blocks smaller than this use all features),
+\code{min_predictor_for_sub} (default 500), \code{yprob} (default 0.5).}
 
-\item{y}{Used for supervised variable selection. For regression, provide a numerical vector. For classification, provide a factor vector. Set to NULL for unsupervised variable selection.}
+\item{seed}{Random seed.}
+
+\item{...}{Additional arguments passed to forest fitting helpers.}
 }
 \value{
 mrf3 object
@@ -62,8 +71,17 @@ mrf3 object
 \description{
 Fit an initial MRF model
 }
-\examples{
-data(tcga_brca)
-mod <- mrf3_init(tcga_brca)
+\details{
+\code{mrf3_init()} now performs initialization only (filtering, forest fitting,
+and connection selection). IMD weights are computed downstream via
+\code{get_multi_weights()} (for example inside \code{mrf3_fit(..., run_imd = TRUE)}).
 
+When \code{sub_mrf = TRUE}, the final model fit uses a sub-sampling ensemble
+strategy: for each connection, features are randomly sub-sampled from both
+response and predictor blocks, smaller MRFs are fitted, and the n x n
+forest-weight and proximity matrices are averaged.  This trades a small
+amount of matrix approximation accuracy for substantial speed gains when
+p is large (e.g., 6-8x faster at p = 2000).  Connection selection (when
+\code{connect_list = NULL}) still uses full MRF with OOB to ensure proper
+direction determination.
 }

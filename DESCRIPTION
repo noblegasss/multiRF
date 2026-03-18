@@ -1,48 +1,62 @@
 Package: multiRF
 Type: Package
-Title: multiRF: an MRF-based method for multi-omics data integration
-Version: 0.1.0
+Title: MRF-Based Multi-Omics Integration and Clustering
+Version: 0.1.1
 Author: Wei Zhang
 Maintainer: Wei Zhang <wzhang1960@gmail.com>
-Description: More about what it does (maybe more than one line)
-    Use four spaces when indenting paragraphs within the Description.
-License: What license is it under?
+Authors@R: 
+    person("Wei", "Zhang", email = "wzhang1960@gmail.com", role = c("aut", "cre"))
+Description: Tools for model-based integration of multi-omics datasets using
+    random forests and Markov random field inspired weighting. The package
+    provides workflows for model fitting, variable importance aggregation,
+    clustering, and visualization.
+License: MIT + file LICENSE
 Encoding: UTF-8
-LazyData: true
-RoxygenNote: 7.3.2
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
 Imports:
+    circlize,
+    cluster,
+    doParallel,
     dplyr,
-    tidyr,
-    tibble,
+    foreach,
+    ggrepel,
+    ggplot2,
+    ggpubr,
+    ggsci,
+    graphics,
+    grDevices,
+    igraph,
+    magrittr,
+    Matrix,
+    matrixStats,
+    maxstat,
+    pheatmap,
     plyr,
     purrr,
     randomForestSRC,
-    cluster,
-    pheatmap,
-    ggplot2,
-    Rtsne,
+    RColorBrewer,
     Rcpp (>= 1.0.0),
-    doParallel,
-    foreach,
+    Rtsne,
+    stats,
+    stringr,
     survival,
     survminer,
-    shiny,
-    shinydashboard,
-    shinydashboardPlus,
-    matrixStats
-Depends:
-    R (>= 4.3),
-    dplyr,
-    tidyr,
     tibble,
-    plyr,
-    randomForestSRC,
-    cluster,
-    pheatmap,
-    ggplot2,
-    doParallel,
-    foreach
+    tidyr,
+    truncnorm,
+    umap,
+    utils
+Depends:
+    R (>= 4.3)
 LinkingTo: Rcpp
 Suggests: 
+    InterSIM,
+    janitor,
+    knitr,
+    mclust,
+    pkgload,
+    rmarkdown,
     testthat (>= 3.0.0)
+VignetteBuilder: knitr
 Config/testthat/edition: 3

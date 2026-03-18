@@ -14,7 +14,7 @@ tune_k_clusters(x, ...)
   x,
   return_cluster = F,
   plot_k = F,
-  method = "PAM",
+  method = "Spectral",
   tune_method = "silhouette",
   gap_w = "uniform",
   prox = F,
@@ -25,7 +25,7 @@ tune_k_clusters(x, ...)
   x,
   return_cluster = F,
   plot_k = F,
-  method = "PAM",
+  method = "Spectral",
   tune_method = "silhouette",
   gap_w = "uniform",
   prox = F,
@@ -43,27 +43,25 @@ pam_cl(
 )
 }
 \arguments{
-\item{x}{
-    data matrix or data frame, or dissimilarity matrix or object,
-    depending on the value of the \code{diss} argument.
+\item{x}{A proximity/similarity matrix (or embedding input) for clustering.}
 
-    In case of a matrix or data frame, each row corresponds to an
-    observation, and each column corresponds to a variable.  All
-    variables must be numeric (or logical).  Missing values (\code{\link{NA}}s)
-    \emph{are} allowed---as long as every pair of observations has at
-    least one case not missing.
-
-    In case of a dissimilarity matrix, \code{x} is typically the output
-    of \code{\link[cluster]{daisy}} or \code{\link{dist}}.  Also a vector of
-    length n*(n-1)/2 is allowed (where n is the number of observations),
-    and will be interpreted in the same way as the output of the
-    above-mentioned functions. Missing values (\code{\link{NA}}s) are
-    \emph{not} allowed.
-  }
+\item{...}{Additional arguments passed to lower-level clustering functions.}
 
 \item{return_cluster}{A logical parameter that determine whether the clustering results to be returned}
 
 \item{plot_k}{A logical parameter that determine whether the plot of tuning should be showed}
+
+\item{method}{Clustering backend: \code{"PAM"} or \code{"Spectral"}.}
+
+\item{tune_method}{Tuning criterion for PAM (\code{"silhouette"} or \code{"ratio"}).}
+
+\item{gap_w}{Weighting scheme for spectral eigengap (\code{"uniform"} or \code{"log"}).}
+
+\item{prox}{Logical; whether \code{x} is a proximity matrix (converted to dissimilarity for PAM).}
+
+\item{k_tune}{Candidate cluster counts to evaluate.}
+
+\item{d}{Optional degree vector used by spectral clustering.}
 
 \item{diss}{
     logical flag: if TRUE (default for \code{dist} or
@@ -71,11 +69,6 @@ pam_cl(
     dissimilarity matrix.  If FALSE, then \code{x} will be considered as
     a matrix of observations by variables.
   }
-
-\item{dat}{A proximity or similarity matrix that use to cluster}
-
-\item{input}{Input for clustering in PAM. The default is using the dissimilarity matrix 1-dat. The alternative option is
-using the first k + 1 eigenvectors from laplacian matrix (embed).}
 }
 \value{
 optimal number of k

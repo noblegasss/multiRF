@@ -1,5 +1,3 @@
-library(truncnorm)
-
 get_param <- function(x){
   x0 <- x[x == 0]
   x1 <- x[x > 0]
@@ -35,7 +33,7 @@ em <- function(x1, p, mu, sigma, iter, eps, verbose = F, c1 = "truncn", c2 = "ga
 
     # E step
     if(c1 == "truncn") {
-      comp1 <- p*(1-p0) * dtruncnorm(x, a = 0, b = 1,
+      comp1 <- p*(1-p0) * truncnorm::dtruncnorm(x, a = 0, b = 1,
                                      mean = mu[1], sd = sigma[1])
     } else {
       comp1 <- p*(1-p0) * dnorm(x, mean = mu[1], sd = sigma[1])
@@ -104,83 +102,7 @@ em <- function(x1, p, mu, sigma, iter, eps, verbose = F, c1 = "truncn", c2 = "ga
        conv=list(iter=i,diff=diff))
 }
 
-estimate_mode <- function(x) {
-  d <- density(x)
-  d$x[which.max(d$y)]
-}
-
-find_thres <- function(x1, fdr = 0.05) {
-
-  param <- get_param(x1)
-
-  x <- x1[x1 > 0]
-
-  d <- density(x)
-  get_comp0 <- with(d, approxfun(x, y, rule=1))
-  comp0 <- get_comp0(x)
-  mode0 <- estimate_mode(x)
-  idx <- which(x < mode0)
-  ss <- c()
-  pp <- seq(param$p, 0.99, by = 0.01)
-
-  for(i in pp) {
-    mu <- mean(sort(x)[1:ceiling(length(x)*i)])
-    sigma <- sd(sort(x)[1:ceiling(length(x)*i)])
-    shape <- (mu/sigma)^2
-    scale <- sigma^2/mu
-    comp2 <- i *  dtruncnorm(x, a = 0, b = 1,
-                             mean = mu, sd = sigma)
-
-    ss <- c(ss, sum((comp2[idx] - comp0[idx])^2))
-
-  }
-
-  p <- pp[which.min(ss)]
-  mu <- mean(sort(x)[1:ceiling(length(x)*p)])
-  sigma <- sd(sort(x)[1:ceiling(length(x)*p)])
-  comp2 <- p * dtruncnorm(x, a = 0, b = 1,
-                          mean = mu, sd = sigma)
-  f <- comp2/comp0
-  min(x[f < fdr])
-}
-
 #' @keywords internal
 sum.finite <- function(x) {
   sum(x[is.finite(x)])
-}
-
-em_norm <- function(x, p, mu, sigma, iter, eps){
-  i <- 0
-
-  Q <- sum.finite(log(p)+log(dnorm(x, mu[1], sigma[1]))) + sum.finite(log(1-p)+log(dnorm(x, mu[2], sigma[2])))
-  diff <- abs(Q)
-
-  while(i < iter & diff > eps){
-    # E step
-    comp1 <- p * dnorm(x, mean = mu[1], sd = sigma[1])
-    comp2 <- (1-p) * dnorm(x, mean = mu[2], sd = sigma[2])
-    prop1 <- comp1/(comp1 + comp2)
-    prop2 <- comp2/(comp1 + comp2)
-
-    # M step
-    p1 <- sum.finite(prop1)/length(x)
-
-    mu[1] <- sum.finite(prop1 * x)/sum.finite(prop1)
-    mu[2] <- sum.finite(prop2 * x)/sum.finite(prop2)
-
-    sigma[1] <- sqrt(sum.finite(prop1 * (x-mu[1])^2)/sum.finite(prop1))
-    sigma[2] <- sqrt(sum.finite(prop2 * (x-mu[2])^2)/sum.finite(prop2))
-
-    i <- i + 1
-    p <- p1
-
-    diff <- abs(sum(log(comp1 + comp2)) - Q)
-    Q <- sum(log(comp1 + comp2))
-    cat(i,diff,p,mu,sigma,Q,"\n")
-  }
-
-  post <- cbind(comp1, comp2)
-
-  list(par=list(p=p,mu=mu,sigma=sigma,post=post),
-       conv=list(iter=i,diff=diff))
 }

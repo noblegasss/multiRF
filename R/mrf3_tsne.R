@@ -3,7 +3,9 @@
 #' @param dims Number of dims
 #' @param max_iter integer; Number of iterations (default: 1000)
 #' @param learning_rate numeric; Learning rate (default: 200.0)
-
+#' @param verbose Logical; whether to print optimization progress.
+#' @param tol Convergence tolerance.
+#' @param patience Early-stopping patience measured in iterations.
 #' @return Two dimensional tSNE embedding
 #'
 #' @export mrf3_tsne
@@ -23,28 +25,32 @@ mrf3_tsne <- function(mod,  dims = 2,  max_iter = 1000, learning_rate = 200, ver
        tol = tol)
 }
 
-#' @export
 tsne <- function(X, dims = 2,  max_iter = 1000, learning_rate = 200, verbose = F, patience = 10, tol = 1e-05) {
   n <- nrow(X)
   Y <- matrix(rnorm(n * dims), n, dims)
-  cost_history <- c()
-  converged <- FALSE
+  cost_history <- rep(NA_real_, max_iter)
   patience_count <- 0
+  # Faster squared Euclidean distance matrix via matrix algebra.
+  sq_dist_mat <- function(A) {
+    rs <- rowSums(A * A)
+    D <- outer(rs, rs, "+") - 2 * tcrossprod(A)
+    pmax(D, 0)
+  }
   
   for (iter in 1:max_iter) {
     grad_Y <- tsne_cost_gradient_cpp(Y, X)
     Y <- Y - learning_rate * grad_Y
-    Q <- 1 / (1 + as.matrix(dist(Y, method = "euclidean")^2))
+    Q <- 1 / (1 + sq_dist_mat(Y))
     diag(Q) <- 0
     Q <- Q / sum(Q)
     
     cost <- sum(X * log((X + .Machine$double.eps) / (Q + .Machine$double.eps)))
-    cost_history <- c(cost_history, cost)
+    cost_history[iter] <- cost
 
     
     # Check convergence every patience iterations
     if (iter > patience) {
-      recent_costs <- tail(cost_history, patience)
+      recent_costs <- cost_history[(iter - patience + 1):iter]
 
       max_diff <- abs(max(recent_costs[-1] - recent_costs[-patience]))
 
@@ -70,5 +76,3 @@ tsne <- function(X, dims = 2,  max_iter = 1000, learning_rate = 200, verbose = F
   colnames(Y) <- paste0("tSNE", 1:ncol(Y))
   return(Y)
 }
-
-

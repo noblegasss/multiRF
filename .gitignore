@@ -2,3 +2,10 @@
 .Rhistory
 .RData
 .Ruserdata
+.DS_Store
+*.tar.gz
+*.o
+*.so
+*.dll
+*.a
+*.Rcheck/

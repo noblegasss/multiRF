@@ -2,22 +2,29 @@
 % Please edit documentation in R/pairwise_imd.R
 \name{pairwise_imd}
 \alias{pairwise_imd}
-\alias{pairwise_imd.mrf3}
-\title{Find pairwise IMD between variables across datasets}
+\title{Pairwise IMD Analysis After Model Fitting}
 \usage{
-pairwise_imd(x, ...)
-
-\method{pairwise_imd}{mrf3}(x, all_var = F, normalized = F)
+pairwise_imd(
+  x,
+  feature_source = c("selected", "weights_nonzero", "all"),
+  normalized = FALSE
+)
 }
 \arguments{
-\item{x}{A mrf3 object}
+\item{x}{An \code{mrf3_fit} or \code{mrf3} object containing \code{net}, \code{connection}, and
+IMD weights.}
 
-\item{all_var}{A logical parameter that determines whether to compute the connections of all variables or selected variables.
-The default is FALSE for memory saving.}
+\item{feature_source}{Which feature set to use:
+\code{"selected"} (default), \code{"weights_nonzero"}, or \code{"all"}.}
+
+\item{normalized}{Logical; whether to return degree-normalized adjacency.}
 }
 \value{
-A pairwise adjacency matrix between variables and a pairwise connection matrix between datasets
+A list with \code{adj_var_mat}, \code{adj_dat_mat}, \code{var_use}, and
+\code{feature_source}.
 }
 \description{
-Find pairwise IMD between variables across datasets
+Run pairwise IMD as a standalone post-fit analysis. By default, this uses
+the selected features from the variable-selection / robust-clustering stage
+when available, rather than all variables.
 }

@@ -1,10 +1,31 @@
 #' MRF variable selection
-#' 
+#'
+#' @param mod A fitted `mrf3_fit` object, or an `mrf3`-like object that already
+#' contains IMD weights in `mod$weights`.
+#' @param dat.list A list of omics matrices used for feature selection/refit.
+#' @param method Feature-selection rule: `"filter"`, `"test"`, `"mixture"`, or `"thres"`.
+#' @param se Multiplier on standard deviation for thresholding in `"thres"` mode.
+#' @param c1 Distribution family for component 1 in mixture mode.
+#' @param c2 Distribution family for component 2 in mixture mode.
+#' @param level Significance level for test/mixture selection.
+#' @param tscore Logical; whether to use test scores in mixture mode.
+#' @param use_distribution Logical; whether to use distributional approximation in thresholding.
+#' @param re_weights Logical; whether to pass selected weights into refitting.
+#' @param re_fit Logical; whether to refit forests after feature selection.
+#' @param ntree Number of trees used in optional refit.
+#' @param scale Logical; whether to standardize data before refit.
+#' @param k Number of folds/repeats used by filtering heuristics.
+#' @param tol Improvement tolerance in adaptive threshold search.
+#' @param iter Maximum EM iterations for mixture mode.
+#' @param eps EM convergence tolerance for mixture mode.
+#' @param normalized Logical; whether to renormalize selected weights.
+#' @param select Data block(s) to apply selection to; default `"ALL"`.
+#' @param ... Additional arguments passed to underlying fitting functions.
 #' @export
 mrf3_vs <- function(mod, 
-                    dat.list,
+                    dat.list = NULL,
                     method = "filter",
-                    se = 0,
+                    se = 1,
                     c1 = "normal",
                     c2 = "normal",
                     level = 0.05,
@@ -21,8 +42,51 @@ mrf3_vs <- function(mod,
                     normalized = T,
                     select = "ALL",
                     ...){
+
+  if (inherits(mod, "mrf3_fit")) {
+    wf <- mod
+    if (is.null(dat.list)) {
+      dat.list <- wf$data
+    }
+    if (is.null(dat.list)) {
+      stop(
+        "`mrf3_vs()` with `mrf3_fit` requires data in `wf$data`. ",
+        "Run `mrf3_fit(..., return_data = TRUE)` or provide `dat.list` explicitly."
+      )
+    }
+    wf_weights <- wf$weights
+    wf_weights_ls <- wf$weights_init
+    if (is.null(wf_weights)) {
+      stop(
+        "`mrf3_vs()` with `mrf3_fit` requires IMD weights (`wf$weights`). ",
+        "Run `mrf3_fit(..., run_imd = TRUE)` first."
+      )
+    }
+    mod <- list(
+      weights = wf_weights,
+      weights_ls = wf_weights_ls,
+      connection = wf$connection,
+      yprob = wf$config$yprob,
+      ntree = wf$config$ntree,
+      type = wf$type,
+      oob_err = wf$oob_err,
+      mod = wf$models
+    )
+    class(mod) <- "mrf3"
+  }
+
+  if (is.null(dat.list)) {
+    stop("`dat.list` must be provided.")
+  }
   
   weights <- mod$weights
+  if (is.null(weights)) {
+    stop(
+      "`mrf3_vs()` requires IMD weights in `mod$weights`. ",
+      "`mrf3_init()` no longer computes IMD weights; run `mrf3_fit(..., run_imd = TRUE)` ",
+      "or construct `mod` with weights from `get_multi_weights()`."
+    )
+  }
   new_dat <- dat.list
   dat_names <- names(new_dat)
   connect_list <- mod$connection
@@ -31,14 +95,10 @@ mrf3_vs <- function(mod,
 
   if(method == "thres") {
 
-    thres <- choose_thres1(
-      mod$weights_ls,
-      connection = connect_list,
-      dat_names = dat_names,
-      use_distribution = use_distribution,
+    thres <- chooss_thres3(
+      mod$weights,
       se = se
     )
-    
     
   }
   
@@ -142,7 +202,9 @@ mrf3_vs <- function(mod,
 
   names(weights_new) <- dat_names
   mod$weights <- weights_new
-  message("Refit model..")
+  if (isTRUE(re_fit)) {
+    message("Refit model..")
+  }
     
   new_dat <- plyr::llply(
     dat_names,
@@ -191,109 +253,6 @@ mrf3_vs <- function(mod,
   
   mod
   
-}
-
-get_d <- function(node) {
-  t <- table(node)
-  ind <- order(as.numeric(names(t)), decreasing = T)
-  t <- t[ind]
-
-  ld <- t
-  Ld <- c(1, cumsum(t)[-length(cumsum(t))])
-  
-  list(ind = as.numeric(names(t)), ld = ld, Ld = Ld, tb = t)
-}
-
-calc_prob <- function(prob, LD, ld) {
-  
-  ((1-prob)^LD)*(1-(1-prob)^ld)
-} 
- 
-calc_mean_sd <- function(mat) {
-  
-  p <- nrow(mat)
-  # p <- sum(rowMeans(mat != 0) < mean(mat != 0))
-  mean_mat <- apply(
-    mat, 
-    2,
-    function(m) {
-      d <- get_d(m)
-      # p <- nrow(mat) - d$t[length(d$t)]
-      ex <- sapply(1:(length(d$ind) - 1), function(i) {
-        pr <- calc_prob(1/p, d$Ld[i], d$ld[i])
-        d$ind[i] * pr
-      })
-      
-      mm <- sum(ex)
-      
-      exx <- sapply(1:(length(d$ind) - 1), function(i) {
-        pr <- calc_prob(1/p, d$Ld[i], d$ld[i])
-        (d$ind[i] - mm)^2 * pr
-      })
-      
-      s <- sqrt(sum(exx))
-      
-      list(mean = mm, sd = s)
-    }
-  )
-
-  mm <- unlist(purrr::map(mean_mat, "mean"))
-  s <- unlist(purrr::map(mean_mat, "sd"))
-  
-  
-  list(mean = mean(mm),
-       se = s/sqrt(length(s)))
-  
-}
-
-choose_thres1 <- function(wl, connection, dat_names, se, use_distribution) {
-
-  weight_ls <- plyr::llply(1:length(wl),
-                     .fun = function(i) {
-                       w <- wl[[i]]
-                       conn <- rev(connection[[i]])
-                       m <- plyr::llply(
-                         names(w[[1]]),
-                         .fun = function(j) {
-                           Reduce(cbind, purrr::map(w, j) )
-
-                         }
-                       )
-                       names(m) <- conn
-                       m
-
-                  })
-  
-  thres <- plyr::llply(
-    dat_names,
-    .fun = function(d) {
-      w <- purrr::map(weight_ls, d)
-
-      t0 <- plyr::llply(
-        compact(w),
-        .fun = function(m) {
-          if(use_distribution) {
-            t <- calc_mean_sd(m)
-            
-            return(t$mean + se*t$se)
-
-          } else {
-            var_sel <- rowMeans(m != 0) > mean(m != 0)
-            m_new <- m[var_sel,]
-            return(mean(m_new))
-          }
-          
-        }
-      )
-  
-     mean(unlist(t0))
-     
-    }
-  )
-  thres <- unlist(thres)
-  names(thres) <- dat_names
-
-  thres
 }
 
 choose_thres2 <- function(weights, connection, new_dat, yprob, ntree, type, oob_init, k = 3, tol = 0.01, select = "ALL", ...) {
@@ -376,6 +335,17 @@ choose_thres2 <- function(weights, connection, new_dat, yprob, ntree, type, oob_
   
 }
 
+chooss_thres3 <- function(weights, se) {
+  t <- plyr::laply(
+    weights,
+    .fun = function(w) {
+      mean(w) + se * sd(w)
+    }
+  )
+  names(t) <- names(weights)
+  t
+}
+
 test_fn <- function(wl, connection, dat_names, sig.thres = 0.05) {
 
   res <- plyr::llply(1:length(wl),
@@ -400,7 +370,8 @@ test_fn <- function(wl, connection, dat_names, sig.thres = 0.05) {
 
                     z <- ifelse(se != -1, (rowMeans(mat) - mu)/se, 0)
 
-                    p <- pt(z,df = nrow(mat) - 1 ,lower.tail = F)
+                    # p <- pt(z,df = nrow(mat) - 1 ,lower.tail = F)
+                    p <- 1-pnorm(z)
 
                     keep <- ifelse(p < sig.thres, 1, 0)
 

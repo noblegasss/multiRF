@@ -10,13 +10,13 @@
 #' If select "maxstat", the cut will determine by the Maximally Selected Rank statistics.
 #'
 #' @return Return a ggsurvplot.
-#' @inheritParams survminer::ggsurvplot
+#' @param ... Additional arguments passed to `survminer::ggsurvplot()`.
 #'
 #' @import survival
 #' @import survminer
 
-# KM plot
-KM_plot <- function(test_var, time_var, event_var, pheno_mat, cut = "median", ...){
+# plot KM
+plot_km <- function(test_var, time_var, event_var, pheno_mat, cut = "median", ...){
 
   if(is.numeric(test_var)){
 

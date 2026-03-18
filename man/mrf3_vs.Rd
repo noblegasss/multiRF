@@ -6,9 +6,9 @@
 \usage{
 mrf3_vs(
   mod,
-  dat.list,
+  dat.list = NULL,
   method = "filter",
-  se = 0,
+  se = 1,
   c1 = "normal",
   c2 = "normal",
   level = 0.05,
@@ -26,6 +26,48 @@ mrf3_vs(
   select = "ALL",
   ...
 )
+}
+\arguments{
+\item{mod}{A fitted \code{mrf3_fit} object, or an \code{mrf3}-like object that already
+contains IMD weights in \code{mod$weights}.}
+
+\item{dat.list}{A list of omics matrices used for feature selection/refit.}
+
+\item{method}{Feature-selection rule: \code{"filter"}, \code{"test"}, \code{"mixture"}, or \code{"thres"}.}
+
+\item{se}{Multiplier on standard deviation for thresholding in \code{"thres"} mode.}
+
+\item{c1}{Distribution family for component 1 in mixture mode.}
+
+\item{c2}{Distribution family for component 2 in mixture mode.}
+
+\item{level}{Significance level for test/mixture selection.}
+
+\item{tscore}{Logical; whether to use test scores in mixture mode.}
+
+\item{use_distribution}{Logical; whether to use distributional approximation in thresholding.}
+
+\item{re_weights}{Logical; whether to pass selected weights into refitting.}
+
+\item{re_fit}{Logical; whether to refit forests after feature selection.}
+
+\item{ntree}{Number of trees used in optional refit.}
+
+\item{scale}{Logical; whether to standardize data before refit.}
+
+\item{k}{Number of folds/repeats used by filtering heuristics.}
+
+\item{tol}{Improvement tolerance in adaptive threshold search.}
+
+\item{iter}{Maximum EM iterations for mixture mode.}
+
+\item{eps}{EM convergence tolerance for mixture mode.}
+
+\item{normalized}{Logical; whether to renormalize selected weights.}
+
+\item{select}{Data block(s) to apply selection to; default \code{"ALL"}.}
+
+\item{...}{Additional arguments passed to underlying fitting functions.}
 }
 \description{
 MRF variable selection

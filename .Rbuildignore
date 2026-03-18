@@ -1,0 +1,14 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^\.git$
+^\.gitignore$
+^\.Rhistory$
+^\.DS_Store$
+^\.\.Rcheck$
+^src/.*\.(o|so|dll|a)$
+^README\.Rmd$
+^CODEBASE_REVIEW\.md$
+^review$
+^tools$
+^multiRF\.Rcheck$
+^.*\.tar\.gz$

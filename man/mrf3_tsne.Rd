@@ -22,6 +22,12 @@ mrf3_tsne(
 \item{max_iter}{integer; Number of iterations (default: 1000)}
 
 \item{learning_rate}{numeric; Learning rate (default: 200.0)}
+
+\item{verbose}{Logical; whether to print optimization progress.}
+
+\item{tol}{Convergence tolerance.}
+
+\item{patience}{Early-stopping patience measured in iterations.}
 }
 \value{
 Two dimensional tSNE embedding

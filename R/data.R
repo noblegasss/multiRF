@@ -1,20 +1,23 @@
 #' TCGA BRCA Expression Data
 #'
-#' A dataset containing the top 2000 features of mRNA, miRNA, and DNAm from the TCGA BRCA data.
+#' A dataset containing matched mRNA, miRNA, and DNA methylation features from
+#' the TCGA BRCA cohort.
 #'
-#' @format A list with three data frames for mRNA, miRNA, and DNAm features:
+#' @name tcga_brca
+#' @format A named list with three data frames:
 #' \describe{
-#'   \item{gene}{A data frame with mRNA features}
-#'   \item{miRNA}{A data frame with miRNA features}
-#'   \item{methy}{A data frame with DNAm features}
+#'   \item{gene}{mRNA expression features.}
+#'   \item{miRNA}{miRNA expression features.}
+#'   \item{methy}{DNA methylation features.}
 #' }
 #' @source \url{https://www.cancer.gov/tcga}
-"tcga_brca"
+NULL
 
 #' TCGA BRCA Clinical Data
 #'
-#' A dataset containing clinical data from the TCGA BRCA study.
+#' Clinical metadata matched to the bundled TCGA BRCA omics cohort.
 #'
-#' @format A data frame with clinical data.
+#' @name tcga_brca_clinical
+#' @format A data frame with one row per sample.
 #' @source \url{https://www.cancer.gov/tcga}
-"tcga_brca_clinical"
+NULL

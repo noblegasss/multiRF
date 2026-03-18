@@ -9,16 +9,55 @@ get_multi_weights(
   dat.list,
   y = NULL,
   weighted = F,
-  lambda = 1,
   use_depth = F,
+  robust = F,
   parallel = T,
   normalized = T,
   calc = "Both",
   yprob = 1,
   w = NULL,
-  cores = max(detectCores() - 2, 20),
+  cores = max(1, detectCores() - 2),
+  seed = -5,
+  permute = T,
+  nperm = 10,
+  alpha = 0.05,
   ...
 )
+}
+\arguments{
+\item{mod_list}{A named list of fitted random forest models.}
+
+\item{dat.list}{A named list of omics datasets used to align weights.}
+
+\item{y}{Optional response vector (reserved for extensions).}
+
+\item{weighted}{Logical; whether to use weighted importance updates.}
+
+\item{use_depth}{Logical; whether to average depth-aware importances.}
+
+\item{robust}{Logical; whether to use robust matrix-based aggregation.}
+
+\item{parallel}{Logical; whether to parallelize across models.}
+
+\item{normalized}{Logical; whether to normalize the merged weights.}
+
+\item{calc}{Which importance side to compute: \code{"X"}, \code{"Y"}, or \code{"Both"}.}
+
+\item{yprob}{Response sampling proportion used in node-level updates.}
+
+\item{w}{Optional case weights.}
+
+\item{cores}{Number of CPU cores used when \code{parallel = TRUE}.}
+
+\item{seed}{Random seed passed to stochastic components.}
+
+\item{permute}{Logical; whether to use permutation testing in robust updates.}
+
+\item{nperm}{Number of permutations per node when \code{permute = TRUE}.}
+
+\item{alpha}{Significance level for permutation filtering.}
+
+\item{...}{Additional arguments for downstream helper functions.}
 }
 \description{
 Get multi-omics weights

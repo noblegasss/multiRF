@@ -9,12 +9,10 @@
 #' Can select from "all", "inbag", "oob", TRUE, or FALSE. Setting forest.wt = TRUE is equivalent to forest.wt = "inbag".
 #' @param proximity rfsrc parameter. Proximity of cases as measured by the frequency of sharing the same terminal node. This is an nxn matrix, which can be large.
 #' Choices are inbag, oob, all, TRUE, or FALSE. Setting proximity = TRUE is equivalent to proximity = "inbag". The default is "all".
-#' @inheritParams randomForestSRC::rfsrc
+#' @param ytry Optional `ytry` value passed to `randomForestSRC::rfsrc()`.
+#' @param seed Random seed passed to `randomForestSRC::rfsrc()`.
+#' @param ... Additional arguments passed to `randomForestSRC::rfsrc()`.
 #' @return A model list
-#'
-#' @export fit_rfsrc
-#'
-#'
 fit_rfsrc <-  function(X, Y = NULL, type = "regression", nodedepth = NULL,
                        ntree = 200, forest.wt = "all", proximity = "all", ytry = NULL, 
                        seed = -10, ...){
@@ -83,17 +81,18 @@ fit_rfsrc <-  function(X, Y = NULL, type = "regression", nodedepth = NULL,
 }
 
 
-#' @export
-#' @param dat.list A list that contains multi-omics datasets with samples in columns and features in rows. Samples should be matched in each dataset.
-#' @param connect_list A pre-defined connection list between datasets. If provided, variable selection will be conducted based on this connection list.
-#' If not provided, the algorithm will find the optimal connection between datasets.
+#' @param dat.list A list that contains multi-omics datasets with samples in rows and features in columns. Samples should be matched in each dataset.
+#' @param connect_list A pre-defined connection list between datasets. If `NULL`,
+#' all directed pairwise connections are enumerated.
+#' @param var.wt Optional variable-weight list aligned with `dat.list`.
+#' @param yprob Proportion of response variables used for tuning `ytry`.
 #' @rdname fit_rfsrc
 #'
 fit_multi_rfsrc <- function(dat.list, connect_list = NULL, var.wt = NULL, yprob = 1, seed = -10, ...){
 
   if(is.null(connect_list)){
 
-    mod_l <- fullConnect(dat.list, seed = seed, ...)
+    mod_l <- full_connect(dat.list, seed = seed, ...)
 
   } else {
 

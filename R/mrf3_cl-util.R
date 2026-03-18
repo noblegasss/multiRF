@@ -1,462 +1,620 @@
 ## Utility functions for mrf3_cl.R
 
-# Get Spearman correlation of two memberships
-get_corr <- function(tree.membership, weights, net, map_id, symm){
-
-  node_id <- unique(tree.membership)
-  mem_select <- filter(net, from %in% map_id)
-  mem_select <- mem_select$mem_id
-
-  mem_idx <- which(node_id %in% mem_select)
-
-  if(symm){
-    cor_w <- plyr::llply(
-      weights,
-      .fun = function(w){
-        cor(w[,mem_idx[1]], w[,mem_idx[2]], method = "spearman")
-      }
-    )
-    cor_w <- unlist(cor_w)
-    cor_w <- mean(cor_w)
-  } else {
-    cor_w <- cor(weights[,mem_idx[1]], weights[,mem_idx[2]])
+safe_spearman <- function(x, y) {
+  ok <- is.finite(x) & is.finite(y)
+  x <- x[ok]
+  y <- y[ok]
+  if (length(x) < 2L) {
+    return(0)
   }
-
-
-  return(cor_w)
-
+  if (stats::sd(x) == 0 || stats::sd(y) == 0) {
+    return(0)
+  }
+  out <- suppressWarnings(stats::cor(x, y, method = "spearman"))
+  if (!is.finite(out)) 0 else out
 }
 
-# Get weights of variable based on correlation
-get_tree_weight <- function(dat, tree.membership){
+build_sample_embedding <- function(dat, leaf_embed_dim = 10L) {
+  dat <- as.matrix(dat)
+  if (is.null(rownames(dat))) {
+    rownames(dat) <- as.character(seq_len(nrow(dat)))
+  }
 
-  dat.mean <- colMeans(dat, na.rm = T)
-  node.index <- unique(tree.membership)
+  k <- max(
+    1L,
+    min(
+      as.integer(leaf_embed_dim),
+      as.integer(ncol(dat)),
+      max(1L, as.integer(nrow(dat) - 1L))
+    )
+  )
 
-  class.info <- plyr::llply(
-    node.index,
-    .fun = function(ni){
+  emb <- tryCatch(
+    {
+      pc <- stats::prcomp(dat, center = TRUE, scale. = TRUE, rank. = k)
+      pc$x[, seq_len(min(k, ncol(pc$x))), drop = FALSE]
+    },
+    error = function(e) NULL
+  )
 
-      dat.ni <- as.matrix(dat[tree.membership == ni,])
-      class.mean <- mean(dat.ni)
-      dat.class.mean <- colMeans(dat.ni, na.rm = T)
+  if (is.null(emb) || !is.matrix(emb) || ncol(emb) == 0L) {
+    emb <- scale(dat)
+    if (is.null(dim(emb))) {
+      emb <- matrix(emb, ncol = 1)
+    }
+    emb <- emb[, seq_len(min(ncol(emb), k)), drop = FALSE]
+  }
 
-      d0 <- dat.class.mean - dat.mean
+  rownames(emb) <- rownames(dat)
+  emb
+}
 
-      d <- d0/sqrt(sum(d0^2))
+build_embedding_list <- function(mod, symm = TRUE, use = "X", leaf_embed_dim = 10L) {
+  if (symm) {
+    sample_embed_list <- list(
+      X = build_sample_embedding(mod$xvar, leaf_embed_dim = leaf_embed_dim)
+    )
+    if (!is.null(mod$yvar)) {
+      sample_embed_list$Y <- build_sample_embedding(mod$yvar, leaf_embed_dim = leaf_embed_dim)
+    }
+    return(sample_embed_list)
+  }
 
-      return(list(
-        class.mean = class.mean,
-        d = d
-      ))
+  dat_use <- if (use == "Y" && !is.null(mod$yvar)) mod$yvar else mod$xvar
+  nm <- if (use == "Y" && !is.null(mod$yvar)) "Y" else "X"
+  out <- list()
+  out[[nm]] <- build_sample_embedding(dat_use, leaf_embed_dim = leaf_embed_dim)
+  out
+}
+
+get_leaf_centroid_embedding <- function(sample_embed, tree.membership) {
+  ids <- sort(unique(tree.membership))
+  out <- matrix(
+    NA_real_,
+    nrow = length(ids),
+    ncol = ncol(sample_embed),
+    dimnames = list(as.character(ids), colnames(sample_embed))
+  )
+
+  for (i in seq_along(ids)) {
+    idx <- which(tree.membership == ids[i])
+    out[i, ] <- colMeans(sample_embed[idx, , drop = FALSE], na.rm = TRUE)
+  }
+
+  out
+}
+
+# Get Spearman correlation of one sibling-leaf pair based on low-dimensional embeddings.
+get_corr <- function(mem_pair, centroid_list) {
+  corr_vals <- vapply(
+    centroid_list,
+    FUN.VALUE = numeric(1),
+    FUN = function(centroid) {
+      id1 <- as.character(mem_pair[1])
+      id2 <- as.character(mem_pair[2])
+      if (!(id1 %in% rownames(centroid)) || !(id2 %in% rownames(centroid))) {
+        return(NA_real_)
+      }
+      safe_spearman(
+        as.numeric(centroid[id1, , drop = TRUE]),
+        as.numeric(centroid[id2, , drop = TRUE])
+      )
     }
   )
 
-  class_mean <- purrr::map(class.info, "class.mean")
-  class_mean <- unlist(class_mean)
-
-  weights <- purrr::map(class.info, "d")
-  weights <- purrr::reduce(weights, cbind)
-
-  return(list(w = weights, class_mean = class_mean))
-
-
+  corr_vals <- corr_vals[is.finite(corr_vals)]
+  if (length(corr_vals) == 0L) {
+    return(NA_real_)
+  }
+  mean(corr_vals)
 }
 
-# Get correlation in terminal nodes
-get_leaf_corr <- function(mod, tree.membership, net, symm = T, use = "X"){
-
-  # Create new columns
-  if(is.null(net$corr)) {
+# Compute correlations for sibling leaf candidates only.
+get_leaf_corr <- function(tree.membership, net, sample_embed_list) {
+  if (is.null(net$corr)) {
     net$corr <- 0
   }
-  if(is.null(net$is_leaf)) {
-    net$is_leaf <- ifelse(grepl("leaf" ,net$to), 1, 0)
+  if (is.null(net$is_leaf)) {
+    net$is_leaf <- ifelse(grepl("leaf", net$to), 1, 0)
   }
-  if(is.null(net$leaf_used)) net$leaf_used <- 0
-  if(is.null(net$mem_id)) {
+  if (is.null(net$leaf_used)) {
+    net$leaf_used <- 0
+  }
+  if (is.null(net$mem_id)) {
     net$mem_id <- ifelse(net$is_leaf == 1, net$to_id, 0)
   }
 
+  sibling_parent <- dplyr::filter(.data = net, is_leaf == 1)
+  sibling_parent <- dplyr::summarise(.data = sibling_parent, n = n(), .by = from)
+  sibling_parent <- dplyr::filter(.data = sibling_parent, n == 2)
 
-  # Get weights
-  if(symm){
-    dat <- list(X = mod$xvar, Y = mod$yvar)
-    w <- llply(
-      dat,
-      .fun = function(d){
-
-        get_tree_weight(d, tree.membership)
-      }
-    )
-    weights <- purrr::map(w, "w")
-  } else {
-    if(use == "X"){
-      dat <- mod$xvar
-    }
-
-    if(use == "Y"){
-      dat <- mod$yvar
-    }
-
-    w <- get_tree_weight(dat, tree.membership)
-    weights <- w$w
+  if (nrow(sibling_parent) == 0L) {
+    return(list(
+      net = net,
+      leaf_select = net[0, , drop = FALSE],
+      parent_tbl = data.frame(
+        parent = character(0),
+        corr = numeric(0),
+        stringsAsFactors = FALSE
+      )
+    ))
   }
 
-  # Find upper level node
-  find_node <- dplyr::filter(.data = net, is_leaf == 1)
-  find_node <- dplyr::summarise(.data = find_node, n = n(), .by = from)
-  find_node <- filter(.data = find_node, n == 2)
-  find_node <- find_node$from
+  leaf_select <- dplyr::filter(net, from %in% sibling_parent$from)
+  centroid_list <- purrr::map(
+    sample_embed_list,
+    ~get_leaf_centroid_embedding(.x, tree.membership = tree.membership)
+  )
 
-  leaf_select <- filter(net, from %in% find_node)
+  parent_ids <- unique(leaf_select$from)
+  corr_leaf <- vapply(
+    parent_ids,
+    FUN.VALUE = numeric(1),
+    FUN = function(pid) {
+      mem_pair <- unique(leaf_select$mem_id[leaf_select$from == pid])
+      if (length(mem_pair) != 2L) {
+        return(NA_real_)
+      }
+      get_corr(mem_pair = mem_pair, centroid_list = centroid_list)
+    }
+  )
 
-  map_id <- unique(leaf_select$from)
-
-  # Calculate correlation
-  corr_leaf <- map_id %>%
-    purrr::map(~get_corr(map_id = .,
-                         tree.membership = tree.membership,
-                         weights = weights,
-                         net = leaf_select,
-                         symm = symm)) %>%
-    unlist()
-
-
-  # Map correlation to node
   net$leaf_used[match(leaf_select$to, net$to)] <- 1
-  net$corr[match(map_id, net$to)] <- corr_leaf
+  parent_idx <- match(parent_ids, net$to)
+  keep <- which(!is.na(parent_idx))
+  net$corr[parent_idx[keep]] <- corr_leaf[keep]
 
-  # Update leaf information
+  parent_tbl <- data.frame(
+    parent = as.character(parent_ids),
+    corr = as.numeric(corr_leaf),
+    stringsAsFactors = FALSE
+  )
 
-  net$is_leaf[match(map_id, net$to)] <- 1
-  net$is_leaf[match(leaf_select$to, net$to)] <- 0
-
-  # Update mem_id and membership
-  net$mem_id_old <- net$mem_id
-
-  mem_update <- slice_max(.data = leaf_select, order_by = mem_id, by = from)
-  mem_new <- setNames(mem_update$mem_id, mem_update$from)
-  mem_new <- mem_new[leaf_select$from]
-
-  mem_org <- filter(leaf_select, !mem_id %in% mem_new)
-  mem_org_id <- setNames(mem_org$mem_id, mem_org$from)
-
-  mem_org_id <- mem_org_id[unique(names(mem_new))]
-  names(mem_org_id) <- unique(mem_new)
-
-  net$mem_id[match(mem_update$from, net$to)] <- mem_update$mem_id
-  net$mem_id[which(net$from %in% names(mem_new))] <- mem_new
-
-  sapply(1:length(mem_org_id), function(id) net$mem_id[net$mem_id == mem_org_id[id]] <<- as.numeric(names(mem_org_id)[id]))
-  net$mem_id <- as.numeric(net$mem_id)
-
-  sapply(1:length(mem_org_id),
-         function(id){
-           tree.membership[tree.membership == mem_org_id[id]] <<-
-             as.numeric(names(mem_org_id)[id])
-         })
-
-
-  return(
-    list(net = net,
-         tree.mem = tree.membership)
+  list(
+    net = net,
+    leaf_select = leaf_select,
+    parent_tbl = parent_tbl
   )
 }
 
-# Update tree leaf weights
-update_tree_leaf <- function(mod, dat = NULL, tree.membership, net, size_min = 10, symm = T,
-                             use = "X", calc_imp = T){
+transform_sibling_corr <- function(corr, sibling_fun = "positive") {
+  if (!is.finite(corr)) {
+    return(0)
+  }
+  switch(
+    sibling_fun,
+    constant = 1,
+    positive = max(corr, 0),
+    shift01 = (corr + 1) / 2,
+    abs = abs(corr),
+    identity = corr,
+    max(corr, 0)
+  )
+}
 
-  if(is.null(dat)){
-    if(use == "X") dat <- mod$xvar
-    if(use == "Y") dat <- mod$yvar
+build_sibling_edges <- function(leaf_select,
+                                parent_tbl,
+                                sibling_gamma = 0.5,
+                                sibling_fun = "positive",
+                                sibling_cap = TRUE) {
+  if (nrow(parent_tbl) == 0L || nrow(leaf_select) == 0L) {
+    return(data.frame(
+      leaf1 = character(0),
+      leaf2 = character(0),
+      weight = numeric(0),
+      stringsAsFactors = FALSE
+    ))
   }
 
-  datY <- mod$yvar
-  if(!is.null(datY)){
-    datY <- datY[rownames(dat),]
-  }
-
-
-  # Get initial correlation
-  update <- get_leaf_corr(mod = mod,
-                          tree.membership = tree.membership,
-                          net = net,
-                          symm = symm,
-                          use = use)
-
-  updated_net <- update$net
-
-  top_node_info <- filter(.data = updated_net, is_leaf == 1 & !grepl("<leaf>", to))
-
-  node_corr <- setNames(top_node_info$corr, top_node_info$to)
-
-  old_net <- updated_net[updated_net$from %in% top_node_info$to,]
-  classified <- NULL
-  scores_imp <- NULL
-
-  if(!all(old_net$corr == 0)){
-
-    old_net_corr <- filter(old_net, corr != 0)
-    old_net_corr <- group_by(old_net_corr, from)
-    old_net_corr <- summarise_at(old_net_corr, c("corr", "nodesize"), list(max = max, min = min))
-
-    node_corr <- node_corr[old_net_corr$from]
-
-    old_net_corr <- mutate(old_net_corr,
-                           new_corr = node_corr,
-                           mem_drop = ifelse((new_corr < corr_max|corr_max < 0) & nodesize_min > size_min, 1, 0))
-
-    if(any(old_net_corr$mem_drop == 1)){
-
-      drop_df <- old_net_corr[old_net_corr$mem_drop == 1,]
-      drop_sample <- drop_df$from
-
-      match_old_net <- old_net[old_net$from %in% drop_sample,]
-      drop_case <- slice_max(match_old_net, order_by = corr, by = from)
-
-      if(calc_imp){
-        # Get important variable
-        # Get X
-
-        imp_var <- top_node_info[match(drop_sample, top_node_info$to),"from"]
-        scores_imp <- abs(drop_df$new_corr - drop_df$corr_max)
-
-        # scores_imp <- drop_case[match(imp_var,drop_case$to),] %>% pull(corr)
-        names(scores_imp) <- gsub("_.*", "",imp_var)
-
-        # Get Y
-        if(!is.null(datY)){
-          scores_impY <- get_Y_imp(net = match_old_net, tree.membership = tree.membership, dat = datY)
-          scores_imp <- list(X = scores_imp, Y = scores_impY)
-        } else {scores_imp <- list(X = scores_imp)}
-
-      }
-
-      new_case <- updated_net[updated_net$to %in%  drop_case$from,]
-      new_case <- new_case[match(drop_case$from, new_case$to),]
-
-      updated_net2 <- filter(updated_net, !mem_id_old %in% drop_case$mem_id_old)
-
-      updated_net2[match(drop_case$from, updated_net2$to), "is_leaf"] <- 0
-      updated_net2[match(new_case$to, updated_net2$from), c("from", "is_leaf")] <- cbind(new_case$from, rep(1,nrow(drop_case)))
-      updated_net2 <-  filter(updated_net2, !to %in% drop_case$from)
-
-      dat_update <- dat[!tree.membership %in% drop_case$mem_id_old,]
-
-      classified <- list(
-        dat = dat[tree.membership %in% drop_case$mem_id_old,],
-        mem = tree.membership[tree.membership %in% drop_case$mem_id_old]
-      )
-      m_idx <- which(!tree.membership %in% drop_case$mem_id_old)
-      names(tree.membership) <- update$tree.mem
-      m_case <- update$tree.mem
-      sapply(1:length(unique(drop_case$mem_id_old)), function(id){
-        m_case[names(tree.membership) %in% unique(drop_case$mem_id_old)[id]] <<- tree.membership[names(tree.membership) %in% unique(drop_case$mem_id_old)[id]]
-      })
-      mem_new <- m_case[m_idx]
-
-      updated_net <- updated_net2
-      dat <- dat_update
-      updated_net$is_leaf <- as.numeric(updated_net$is_leaf)
-
-
-      updated_net$mem_id[updated_net$mem_id %in% drop_case$mem_id_old] <- updated_net$mem_id_old[updated_net$mem_id %in% drop_case$mem_id_old]
-
-    } else {
-      mem_new <- update$tree.mem
-
+  edge_ls <- lapply(seq_len(nrow(parent_tbl)), function(i) {
+    pid <- parent_tbl$parent[i]
+    corr <- parent_tbl$corr[i]
+    pair_rows <- leaf_select[leaf_select$from == pid, , drop = FALSE]
+    pair_mem <- unique(pair_rows$mem_id)
+    if (length(pair_mem) != 2L) {
+      return(NULL)
     }
 
-  } else {
+    w <- sibling_gamma * transform_sibling_corr(corr, sibling_fun = sibling_fun)
+    if (!is.finite(w)) {
+      return(NULL)
+    }
+    w <- max(0, w)
+    if (isTRUE(sibling_cap)) {
+      w <- min(1, w)
+    }
+    if (w <= 0) {
+      return(NULL)
+    }
 
-    mem_new <- update$tree.mem
+    data.frame(
+      leaf1 = as.character(pair_mem[1]),
+      leaf2 = as.character(pair_mem[2]),
+      weight = w,
+      stringsAsFactors = FALSE
+    )
+  })
+
+  edge_ls <- Filter(Negate(is.null), edge_ls)
+  if (length(edge_ls) == 0L) {
+    return(data.frame(
+      leaf1 = character(0),
+      leaf2 = character(0),
+      weight = numeric(0),
+      stringsAsFactors = FALSE
+    ))
+  }
+  do.call(rbind, edge_ls)
+}
+
+build_sparse_leaf_prox <- function(tree.membership, sibling_edges = NULL) {
+  if (is.null(names(tree.membership))) {
+    names(tree.membership) <- as.character(seq_along(tree.membership))
   }
 
+  n <- length(tree.membership)
+  idx_by_leaf <- split(seq_len(n), as.character(tree.membership))
 
+  i_all <- integer(0)
+  j_all <- integer(0)
+  x_all <- numeric(0)
 
-  return(
-    list(
-      net = updated_net,
-      dat = dat,
-      classified = classified,
-      mem = mem_new,
-      imp_var = scores_imp
-    )
+  # Same enhanced leaf edges (weight = 1).
+  for (idx in idx_by_leaf) {
+    m <- length(idx)
+    if (m == 0L) {
+      next
+    }
+    i_all <- c(i_all, rep(idx, each = m))
+    j_all <- c(j_all, rep(idx, times = m))
+    x_all <- c(x_all, rep.int(1, m * m))
+  }
+
+  # Neighbor enhanced leaf edges (weight from sibling edges).
+  if (!is.null(sibling_edges) && nrow(sibling_edges) > 0L) {
+    for (k in seq_len(nrow(sibling_edges))) {
+      leaf1 <- sibling_edges$leaf1[k]
+      leaf2 <- sibling_edges$leaf2[k]
+      w <- sibling_edges$weight[k]
+      idx1 <- idx_by_leaf[[as.character(leaf1)]]
+      idx2 <- idx_by_leaf[[as.character(leaf2)]]
+      if (is.null(idx1) || is.null(idx2) || length(idx1) == 0L || length(idx2) == 0L) {
+        next
+      }
+      i_all <- c(i_all, rep(idx1, each = length(idx2)), rep(idx2, each = length(idx1)))
+      j_all <- c(j_all, rep(idx2, times = length(idx1)), rep(idx1, times = length(idx2)))
+      x_all <- c(x_all, rep(w, 2L * length(idx1) * length(idx2)))
+    }
+  }
+
+  prox <- Matrix::sparseMatrix(
+    i = i_all,
+    j = j_all,
+    x = x_all,
+    dims = c(n, n),
+    dimnames = list(names(tree.membership), names(tree.membership)),
+    giveCsparse = TRUE
   )
+  if (length(prox@x) > 0L) {
+    prox@x <- pmin(prox@x, 1)
+  }
+  prox
+}
+
+build_soft_tree_prox <- function(tree.membership,
+                                 leaf_select,
+                                 parent_tbl,
+                                 sibling_gamma = 0.5,
+                                 sibling_fun = "positive",
+                                 sibling_cap = TRUE) {
+  sibling_edges <- build_sibling_edges(
+    leaf_select = leaf_select,
+    parent_tbl = parent_tbl,
+    sibling_gamma = sibling_gamma,
+    sibling_fun = sibling_fun,
+    sibling_cap = sibling_cap
+  )
+  build_sparse_leaf_prox(tree.membership = tree.membership, sibling_edges = sibling_edges)
+}
+
+# Merge sibling pairs conservatively: keep only candidates that satisfy
+# the old "mem_drop" style condition before applying optional quantile pruning.
+update_tree_leaf <- function(tree.membership,
+                             net,
+                             sample_embed_list,
+                             merge_quantile = 0.9,
+                             size_min = 10) {
+  update <- get_leaf_corr(
+    tree.membership = tree.membership,
+    net = net,
+    sample_embed_list = sample_embed_list
+  )
+
+  updated_net <- update$net
+  parent_tbl <- update$parent_tbl
+
+  if (nrow(parent_tbl) == 0L) {
+    return(list(net = updated_net, mem = tree.membership, merged = FALSE))
+  }
+
+  parent_tbl <- parent_tbl[is.finite(parent_tbl$corr), , drop = FALSE]
+  if (nrow(parent_tbl) == 0L) {
+    return(list(net = updated_net, mem = tree.membership, merged = FALSE))
+  }
+
+  leaf_select <- update$leaf_select
+  merge_tbl <- lapply(seq_len(nrow(parent_tbl)), function(i) {
+    pid <- as.character(parent_tbl$parent[i])
+    new_corr <- as.numeric(parent_tbl$corr[i])
+    pair_rows <- leaf_select[leaf_select$from == pid, , drop = FALSE]
+    pair_mem <- unique(pair_rows$mem_id)
+    if (length(pair_mem) != 2L) {
+      return(NULL)
+    }
+
+    child_corr <- pair_rows$corr
+    child_corr <- child_corr[is.finite(child_corr)]
+    corr_max <- if (length(child_corr) > 0L) max(child_corr) else 0
+
+    node_sz <- pair_rows$nodesize
+    node_sz <- node_sz[is.finite(node_sz)]
+    nodesize_min <- if (length(node_sz) > 0L) min(node_sz) else 0
+
+    mem_drop <- ((new_corr < corr_max) || (corr_max < 0)) && (nodesize_min > size_min)
+    if (!isTRUE(mem_drop)) {
+      return(NULL)
+    }
+
+    data.frame(
+      parent = pid,
+      corr = new_corr,
+      corr_max = corr_max,
+      nodesize_min = nodesize_min,
+      stringsAsFactors = FALSE
+    )
+  })
+  merge_tbl <- Filter(Negate(is.null), merge_tbl)
+  if (length(merge_tbl) == 0L) {
+    return(list(net = updated_net, mem = tree.membership, merged = FALSE))
+  }
+  merge_tbl <- do.call(rbind, merge_tbl)
+
+  # Optional pruning among valid mem_drop candidates.
+  merge_quantile <- min(max(as.numeric(merge_quantile), 0), 1)
+  if (nrow(merge_tbl) > 1L) {
+    corr_cut <- stats::quantile(
+      merge_tbl$corr,
+      probs = merge_quantile,
+      na.rm = TRUE,
+      names = FALSE,
+      type = 8
+    )
+    merge_tbl <- merge_tbl[merge_tbl$corr >= corr_cut, , drop = FALSE]
+  }
+  if (nrow(merge_tbl) == 0L) {
+    return(list(net = updated_net, mem = tree.membership, merged = FALSE))
+  }
+
+  mem_new <- tree.membership
+
+  for (pid in merge_tbl$parent) {
+    pair_rows <- leaf_select[leaf_select$from == pid, , drop = FALSE]
+    pair_mem <- unique(pair_rows$mem_id)
+    if (length(pair_mem) != 2L) {
+      next
+    }
+
+    keep_id <- max(pair_mem)
+    drop_id <- min(pair_mem)
+
+    if (!any(mem_new == drop_id)) {
+      next
+    }
+
+    mem_new[mem_new == drop_id] <- keep_id
+    updated_net$mem_id[updated_net$mem_id == drop_id] <- keep_id
+
+    p_idx <- which(updated_net$to == pid)
+    if (length(p_idx) > 0L) {
+      updated_net$is_leaf[p_idx] <- 1
+      updated_net$mem_id[p_idx] <- keep_id
+    }
+
+    child_idx <- match(pair_rows$to, updated_net$to)
+    child_idx <- child_idx[!is.na(child_idx)]
+    if (length(child_idx) > 0L) {
+      updated_net$is_leaf[child_idx] <- 0
+    }
+  }
+
+  merged <- !identical(unname(mem_new), unname(tree.membership))
+  list(net = updated_net, mem = mem_new, merged = merged)
 }
 
 # Update terminal nodes from bottom to top
-update_iter_cl <- function(mod, tree.id, size_min = 10, symm = T, use = "X", calc_imp = T){
+update_iter_cl <- function(mod,
+                           tree.id,
+                           size_min = 10,
+                           symm = TRUE,
+                           use = "X",
+                           leaf_embed_dim = 10,
+                           sample_embed_list = NULL,
+                           merge_quantile = 0.9,
+                           merge_mode = c("soft", "hard"),
+                           sibling_gamma = 0.5,
+                           sibling_fun = c("constant", "positive", "shift01", "abs", "identity"),
+                           sibling_cap = TRUE,
+                           hard_prox_mode = c("soft_enhanced", "binary")) {
+  merge_mode <- match.arg(merge_mode)
+  sibling_fun <- match.arg(sibling_fun)
+  hard_prox_mode <- match.arg(hard_prox_mode)
 
   net <- get_tree_net(mod = mod, tree.id = tree.id)
-  mem <- mod$membership[,tree.id]
-  dat <- NULL
-  i <- 1
-  imp <- list()
-  class_ls <- list()
-
-  while(any(is.null(net$is_leaf), sum(net$is_leaf) > 2)){
-
-    update_ls <- update_tree_leaf(
+  mem <- mod$membership[, tree.id]
+  names(mem) <- rownames(mod$xvar)
+  if (is.null(sample_embed_list)) {
+    sample_embed_list <- build_embedding_list(
       mod = mod,
-      dat = dat,
-      tree.membership = mem,
-      net = net,
-      size_min = size_min,
       symm = symm,
       use = use,
-      calc_imp = calc_imp
+      leaf_embed_dim = leaf_embed_dim
+    )
+  }
+
+  if (merge_mode == "soft") {
+    if (is.null(net$is_leaf)) {
+      net$is_leaf <- ifelse(grepl("leaf", net$to), 1, 0)
+    }
+    if (is.null(net$mem_id)) {
+      net$mem_id <- ifelse(net$is_leaf == 1, net$to_id, 0)
+    }
+
+    leaf_info <- get_leaf_corr(
+      tree.membership = mem,
+      net = net,
+      sample_embed_list = sample_embed_list
+    )
+    prox <- build_soft_tree_prox(
+      tree.membership = mem,
+      leaf_select = leaf_info$leaf_select,
+      parent_tbl = leaf_info$parent_tbl,
+      sibling_gamma = sibling_gamma,
+      sibling_fun = sibling_fun,
+      sibling_cap = sibling_cap
+    )
+
+    class_d <- mem[match(rownames(mod$xvar), names(mem))]
+    if (anyNA(class_d)) {
+      class_d <- as.numeric(mem)
+      names(class_d) <- rownames(mod$xvar)
+    }
+    return(list(class_mem = class_d, prox = prox))
+  }
+
+  max_iter <- nrow(net) + 5L
+  for (iter in seq_len(max_iter)) {
+    update_ls <- update_tree_leaf(
+      tree.membership = mem,
+      net = net,
+      sample_embed_list = sample_embed_list,
+      merge_quantile = merge_quantile,
+      size_min = size_min
     )
 
     net <- update_ls$net
+    if (!isTRUE(update_ls$merged)) {
+      break
+    }
     mem <- update_ls$mem
-    dat <- update_ls$dat
-
-    if(!is.null(update_ls$classified)){
-
-      class_ls[[i]] <- update_ls$classified
-      i <- i + 1
-      if(calc_imp){
-        imp[[i]] <- update_ls$imp_var
-      }
-
-
-    }
   }
 
-  if(calc_imp){
-    # Get root variable imp
-    root_net <- net %>% filter(is_leaf == 1)
-    imp_root <- abs(-1 - mean(root_net$corr))
-    names(imp_root) <- gsub("^(.*)_.*", "\\1", unique(root_net$from))
-    impX <- c(unlist(purrr::map(imp, "X") ), imp_root)
+  class_d <- mem[match(rownames(mod$xvar), names(mem))]
+  if (anyNA(class_d)) {
+    class_d <- as.numeric(mem)
+    names(class_d) <- rownames(mod$xvar)
+  }
 
-    if(!is.null(mod$yvar)){
-      # Get root variable imp for Y
-      root_net$mem_id_old <- root_net$mem_id
-      datY <- mod$yvar[rownames(dat),]
-      imp_rootY <- get_Y_imp(root_net, mem, datY)
-      impY <- c(unlist(purrr::map(imp, "Y")), imp_rootY)
-      imp_ls <- list(X = impX, Y = impY)
-      var_name <- list(X = colnames(mod$xvar), Y = colnames(mod$yvar))
-    } else {
-      imp_ls <- list(X = impX)
-      var_name <- list(X = colnames(mod$xvar))
-    }
-
-    if(!is.null(mod$yvar)){idx <- c("X","Y")} else {idx <- c("X")}
-    # create var imp vector
-    imp_col <- plyr::llply(
-      idx,
-      .fun = function(l){
-        get_iv(var_name[[l]],imp_ls[[l]])
-      }
+  if (hard_prox_mode == "binary") {
+    prox <- build_sparse_leaf_prox(tree.membership = class_d, sibling_edges = NULL)
+  } else {
+    leaf_info <- get_leaf_corr(
+      tree.membership = mem,
+      net = net,
+      sample_embed_list = sample_embed_list
     )
-    names(imp_col) <- idx
-  } else imp_col <- NULL
-
-  if(any(table(mem)) < size_min){
-
-    unique_mem <- unique(mem)
-    mem[mem == unique_mem[1]] <- unique_mem[2]
-
+    prox <- build_soft_tree_prox(
+      tree.membership = mem,
+      leaf_select = leaf_info$leaf_select,
+      parent_tbl = leaf_info$parent_tbl,
+      sibling_gamma = sibling_gamma,
+      sibling_fun = sibling_fun,
+      sibling_cap = sibling_cap
+    )
   }
-
-  dat_new <- purrr::map(class_ls, "dat")
-  dat_new <- Reduce(rbind, dat_new)
-  dat_new <-  rbind(dat_new, dat)
-
-  class_d <- purrr::map(class_ls, "mem")
-  class_d <- unlist(class_d)
-  class_d <- c(class_d, mem)
-
-  class_d <- class_d[match(rownames(mod$xvar), rownames(dat_new))]
-  prox <- get_prox(class_d)
-
-  return(
-    list(class_mem = class_d,
-         prox = prox,
-         imp = imp_col)
-  )
+  list(class_mem = class_d, prox = prox)
 }
 
 # Create new membership and new proximity matrix of forest
-cl_forest <- function(mod, size_min = 5, use = "X", symm = F, calc_imp = T, parallel = T, cores = max(detectCores() - 2,20), ...){
-
+cl_forest <- function(mod,
+                      size_min = 5,
+                      use = "X",
+                      symm = FALSE,
+                      leaf_embed_dim = 10,
+                      merge_quantile = 0.9,
+                      merge_mode = c("soft", "hard"),
+                      sibling_gamma = 0.5,
+                      sibling_fun = c("constant", "positive", "shift01", "abs", "identity"),
+                      sibling_cap = TRUE,
+                      hard_prox_mode = c("soft_enhanced", "binary"),
+                      parallel = TRUE,
+                      cores = max(1, parallel::detectCores() - 2),
+                      sample_embed_list = NULL,
+                      ...) {
+  merge_mode <- match.arg(merge_mode)
+  sibling_fun <- match.arg(sibling_fun)
+  hard_prox_mode <- match.arg(hard_prox_mode)
   nt <- mod$ntree
 
-  if(parallel){
-    if(Sys.info()["sysname"] == "Windows"){
+  if (parallel) {
+    cores <- max(1L, min(as.integer(cores), as.integer(parallel::detectCores())))
+    if (Sys.info()["sysname"] == "Windows") {
       cluster <- parallel::makeCluster(cores)
-    } else {cluster <- cores}
-    doParallel::registerDoParallel(cluster)
+      doParallel::registerDoParallel(cluster)
+      on.exit(parallel::stopCluster(cluster), add = TRUE)
+    } else {
+      doParallel::registerDoParallel(cores)
+    }
   }
   `%myinfix%` <- ifelse(parallel, `%dopar%`, `%do%`)
-
-  forest_ls <- foreach(t = 1:nt, .errorhandling = 'remove') %myinfix% {
-    update_iter_cl(mod,
-                   tree.id = t,
-                   size_min = size_min,
-                   use = use,
-                   symm = symm,
-                   calc_imp = calc_imp)
+  if (is.null(sample_embed_list)) {
+    sample_embed_list <- build_embedding_list(
+      mod = mod,
+      symm = symm,
+      use = use,
+      leaf_embed_dim = leaf_embed_dim
+    )
   }
-  nt <- length(forest_ls)
 
-  if(is.null(mod$yvar)) {idx <- "X"} else {idx <- c("X", "Y")}
-  imp_var <- plyr::llply(
-    idx,
-    .fun = function(im){
-      df <- purrr::map(forest_ls, "imp")
-      df <- purrr::map(df, im)
-      Reduce("+", df)/nt
-    }
+  combine_tree_stats <- function(lhs, rhs) {
+    lhs$prox <- lhs$prox + rhs$prox
+    lhs$n_trees <- lhs$n_trees + rhs$n_trees
+    lhs
+  }
+
+  forest_stat <- foreach(
+    t = seq_len(nt),
+    .errorhandling = "remove",
+    .combine = combine_tree_stats
+  ) %myinfix% {
+    one_tree <- update_iter_cl(
+      mod,
+      tree.id = t,
+      size_min = size_min,
+      use = use,
+      symm = symm,
+      leaf_embed_dim = leaf_embed_dim,
+      sample_embed_list = sample_embed_list,
+      merge_quantile = merge_quantile,
+      merge_mode = merge_mode,
+      sibling_gamma = sibling_gamma,
+      sibling_fun = sibling_fun,
+      sibling_cap = sibling_cap,
+      hard_prox_mode = hard_prox_mode
+    )
+    list(
+      prox = one_tree$prox,
+      n_trees = 1L
+    )
+  }
+
+  if (is.null(forest_stat) || is.null(forest_stat$n_trees) || forest_stat$n_trees < 1L) {
+    stop("No valid trees were processed in `cl_forest()`.")
+  }
+
+  nt_eff <- as.integer(forest_stat$n_trees)
+  prox <- forest_stat$prox / nt_eff
+
+  list(
+    prox = prox
   )
-
-  prox <- purrr::map(forest_ls, "prox")
-  prox <- Reduce("+", prox)/nt
-
-  new_mem <- purrr::map(forest_ls, "class_mem")
-  new_mem <- Reduce(cbind, new_mem)
-
-
-  return(list(
-    prox = prox,
-    imp = imp_var,
-    membership.new = new_mem
-  ))
-
-}
-
-# Transfer proximity to cosine distance
-trans_cos_mat <- function(mat){
-  p <- mat/sqrt(rowSums(mat^2))
-  prox <- p %*% t(p)
-}
-
-# Screening function
-mrf_XY.screening <- function(mod,...){
-
-  fw <- mod$forest.wt
-
-  ex <- colMeans((fw %*% as.matrix(mod$xvar) - as.matrix(mod$xvar))^2)
-  if(is.null(mod$yvar)){
-    out <- list(X = colnames(mod$xvar[,ex < 1]))
-  } else {
-    if(class(mod)[3] == "class+"){
-      out <- list(X = colnames(mod$xvar[,ex < 1]))
-    } else {
-      ey <- colMeans((fw %*% as.matrix(mod$yvar) - as.matrix(mod$yvar))^2)
-      out <- list(
-        X = colnames(mod$xvar[,ex < 1]),
-        Y = colnames(mod$yvar[,ey < 1])
-      )
-    }
-  }
-  
-
-  out
-
 }

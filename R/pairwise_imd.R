@@ -1,137 +1,203 @@
-
-#' Find pairwise IMD between variables across datasets
-#' @param x A mrf3 object
-#' @param all_var A logical parameter that determines whether to compute the connections of all variables or selected variables.
-#' The default is FALSE for memory saving.
-#' @return A pairwise adjacency matrix between variables and a pairwise connection matrix between datasets
-#' @export pairwise_imd
-pairwise_imd <- function(x, ...) {
-  UseMethod("pairwise_imd")
-}
-
-#' @rdname pairwise_imd
-#' @method pairwise_imd mrf3
+#' Pairwise IMD Analysis After Model Fitting
+#'
+#' Run pairwise IMD as a standalone post-fit analysis. By default, this uses
+#' the selected features from the variable-selection / robust-clustering stage
+#' when available, rather than all variables.
+#'
+#' @param x An `mrf3_fit` or `mrf3` object containing `net`, `connection`, and
+#'   IMD weights.
+#' @param feature_source Which feature set to use:
+#'   `"selected"` (default), `"weights_nonzero"`, or `"all"`.
+#' @param normalized Logical; whether to return degree-normalized adjacency.
+#'
+#' @return A list with `adj_var_mat`, `adj_dat_mat`, `var_use`, and
+#'   `feature_source`.
 #' @export
+pairwise_imd <- function(x,
+                         feature_source = c("selected", "weights_nonzero", "all"),
+                         normalized = FALSE) {
+  feature_source <- match.arg(feature_source)
 
-pairwise_imd.mrf3 <- function(x, all_var = F, normalized = F){
-  
-  if(!is.na(class(x)[2])) {
-    if(class(x)[2] == "cl"){
-      mod <- x$mod
-    } else {
-      mod <- x
-    }
-  } else {
-    if(is.na(class(x)[2])) {
-      if(is.na(class(x)[1])) stop("Must be a mrf3 object") else {
-        mod <- x
-      }
-    }
+  mod <- pairwise_imd_extract_object(x)
+  if (is.null(mod$net) || is.null(mod$connection) || is.null(mod$weights)) {
+    stop("`pairwise_imd()` requires `net`, `connection`, and `weights` in the fitted object.")
   }
-  
- 
-  net <- mod$net
-  connection <- mod$connection
+
   dat_names <- names(mod$weights)
-  
-  nt <- mod$ntree
-  
-  var_names <- purrr::map(mod$weights, ~names(.))
-  
-  num_dat <- length(mod$weights)
-  am <- matrix(0, nrow = num_dat, ncol = num_dat,
-               dimnames = list(dat_names, dat_names))
-  
-  d <- do.call(rbind, connection) 
-  length_count <- table(d)[dat_names]
-  
-  for (i in 1:nrow(d)) {
-    am[d[i, 1], d[i, 2]] <- 1
-    am[d[i, 2], d[i, 1]] <- 1
+  if (is.null(dat_names) || any(dat_names == "")) {
+    stop("`weights` must be a named list.")
   }
-  diag(am) <- length_count
-  
-  large_mat <- matrix(0, nrow = length(unlist(var_names)), ncol = length(unlist(var_names)),
-                      dimnames = list(unlist(var_names), unlist(var_names)))
-  
-  l_ply(
-    1:length(net),
-    .fun = function(i){
-      ne <- net[[i]]
-      vn <- var_names[connection[[i]]]
-      names(vn) <- c("yvar", "xvar")
 
-      mat <- pairwise_imd_mod(ne, vn)
-      mat <- mat[rownames(mat) %in% rownames(large_mat), colnames(mat) %in% colnames(large_mat)]
-      large_mat[rownames(mat),colnames(mat)] <<- large_mat[rownames(mat),colnames(mat)] + mat
+  var_use <- pairwise_imd_feature_set(x, mod, feature_source = feature_source)
+  var_names_all <- lapply(mod$weights, names)
+
+  nt <- mod$ntree
+  if (is.null(nt) || !is.finite(nt) || nt <= 0) {
+    nt <- 1L
+  }
+
+  adj_dat_mat <- matrix(0, nrow = length(dat_names), ncol = length(dat_names),
+                        dimnames = list(dat_names, dat_names))
+  conn_mat <- do.call(rbind, mod$connection)
+  length_count <- table(conn_mat)[dat_names]
+  length_count[is.na(length_count)] <- 0
+  for (i in seq_len(nrow(conn_mat))) {
+    adj_dat_mat[conn_mat[i, 1], conn_mat[i, 2]] <- 1
+    adj_dat_mat[conn_mat[i, 2], conn_mat[i, 1]] <- 1
+  }
+  diag(adj_dat_mat) <- as.numeric(length_count)
+
+  large_names <- unlist(var_names_all, use.names = FALSE)
+  adj_var_mat <- matrix(0, nrow = length(large_names), ncol = length(large_names),
+                        dimnames = list(large_names, large_names))
+
+  plyr::l_ply(
+    seq_along(mod$net),
+    .fun = function(i) {
+      ne <- mod$net[[i]]
+      vn <- var_names_all[mod$connection[[i]]]
+      names(vn) <- c("yvar", "xvar")
+      mat <- pairwise_imd_model(ne, vn)
+      mat <- mat[rownames(mat) %in% rownames(adj_var_mat), colnames(mat) %in% colnames(adj_var_mat), drop = FALSE]
+      adj_var_mat[rownames(mat), colnames(mat)] <<- adj_var_mat[rownames(mat), colnames(mat), drop = FALSE] + mat
     }
   )
-  
-  for (i in 1:ncol(am)) {
-    for(j in (i:ncol(am))){
-      m1 <- colnames(am)[i]
-      m2 <- colnames(am)[j]
-      if(am[i,j] != 0){
-        large_mat[var_names[[m1]],var_names[[m2]]] <- large_mat[var_names[[m1]],var_names[[m2]]]/am[i,j]
-        if(i != j){
-          large_mat[var_names[[m2]],var_names[[m1]]] <- large_mat[var_names[[m2]],var_names[[m1]]]/am[i,j]
+
+  for (i in seq_len(ncol(adj_dat_mat))) {
+    for (j in i:ncol(adj_dat_mat)) {
+      m1 <- colnames(adj_dat_mat)[i]
+      m2 <- colnames(adj_dat_mat)[j]
+      if (adj_dat_mat[i, j] != 0) {
+        adj_var_mat[var_names_all[[m1]], var_names_all[[m2]]] <-
+          adj_var_mat[var_names_all[[m1]], var_names_all[[m2]], drop = FALSE] / adj_dat_mat[i, j]
+        if (i != j) {
+          adj_var_mat[var_names_all[[m2]], var_names_all[[m1]]] <-
+            adj_var_mat[var_names_all[[m2]], var_names_all[[m1]], drop = FALSE] / adj_dat_mat[i, j]
         }
       }
     }
   }
-  
-  if(!all_var) {
-    large_mat <- large_mat[names(Reduce(c,mod$weights))[Reduce(c,mod$weights) != 0],
-                           names(Reduce(c,mod$weights))[Reduce(c,mod$weights) != 0]]
-    var_names <- purrr::map(mod$weights, ~names(.)[. > 0])
-    
+
+  keep_vars <- unlist(var_use, use.names = FALSE)
+  keep_vars <- unique(keep_vars[keep_vars %in% rownames(adj_var_mat)])
+  adj_var_mat <- adj_var_mat[keep_vars, keep_vars, drop = FALSE]
+  adj_var_mat <- adj_var_mat / nt
+
+  if (isTRUE(normalized) && nrow(adj_var_mat) > 0L) {
+    d <- rowSums(adj_var_mat)
+    ok <- d > 0
+    inv_sqrt <- rep(0, length(d))
+    inv_sqrt[ok] <- d[ok]^(-1 / 2)
+    l <- diag(inv_sqrt) %*% adj_var_mat %*% diag(inv_sqrt)
+    dimnames(l) <- dimnames(adj_var_mat)
+    adj_var_mat <- l
   }
 
-  large_mat <- large_mat/nt
-  if(normalized) {
-    d <- rowSums(large_mat)
-    l <- diag(d^(-1/2)) %*% large_mat %*% diag(d^(-1/2))
-    dimnames(l) <- dimnames(large_mat)
-    large_mat <- l
-  }
-  
   out <- list(
-    adj_var_mat = large_mat,
-    adj_dat_mat = am,
-    var_use = var_names
+    adj_var_mat = adj_var_mat,
+    adj_dat_mat = adj_dat_mat,
+    var_use = var_use,
+    feature_source = feature_source
   )
-  
-  return(out)
-  
+  class(out) <- c("pairwise_imd_analysis", "list")
+  out
 }
 
 
-pairwise_imd_mod <- function(net, var_name){
-  
-  var_mat <- matrix(0, nrow = length(var_name$xvar) + length(var_name$yvar),
+#' Print `pairwise_imd_analysis`
+#'
+#' @method print pairwise_imd_analysis
+#' @param x Output from `pairwise_imd()`.
+#' @param ... Unused.
+#'
+#' @return Input object invisibly.
+#' @export
+print.pairwise_imd_analysis <- function(x, ...) {
+  cat("pairwise_imd_analysis\n")
+  cat("  feature_source:", x$feature_source, "\n")
+  if (is.list(x$var_use) && length(x$var_use) > 0L) {
+    cat("  selected features by block:\n")
+    for (nm in names(x$var_use)) {
+      cat("   - ", nm, ": ", length(x$var_use[[nm]]), "\n", sep = "")
+    }
+  }
+  if (is.matrix(x$adj_var_mat)) {
+    cat("  adj_var_mat:", nrow(x$adj_var_mat), "x", ncol(x$adj_var_mat), "\n")
+  }
+  if (is.matrix(x$adj_dat_mat)) {
+    cat("  adj_dat_mat:", nrow(x$adj_dat_mat), "x", ncol(x$adj_dat_mat), "\n")
+  }
+  invisible(x)
+}
+
+
+pairwise_imd_extract_object <- function(x) {
+  if (inherits(x, "mrf3_fit")) {
+    return(list(
+      net = x$imd_net,
+      connection = x$connection,
+      weights = x$weights,
+      ntree = x$config$ntree
+    ))
+  }
+  if (inherits(x, "mrf3")) {
+    return(list(
+      net = x$net,
+      connection = x$connection,
+      weights = x$weights,
+      ntree = x$ntree
+    ))
+  }
+  stop("`x` must be an `mrf3_fit` or `mrf3` object.")
+}
+
+
+pairwise_imd_feature_set <- function(x, mod, feature_source = "selected") {
+  if (identical(feature_source, "selected")) {
+    if (inherits(x, "mrf3_fit") && is.list(x$selected_data) && length(x$selected_data) > 0L) {
+      return(lapply(x$selected_data, colnames))
+    }
+    if (inherits(x, "mrf3_fit") && is.list(x$selected_vars) && length(x$selected_vars) > 0L) {
+      return(x$selected_vars)
+    }
+    warning("Selected features unavailable; falling back to non-zero IMD weights.", call. = FALSE)
+    feature_source <- "weights_nonzero"
+  }
+
+  if (identical(feature_source, "weights_nonzero")) {
+    return(lapply(mod$weights, function(w) names(w)[is.finite(w) & (w != 0)]))
+  }
+
+  lapply(mod$weights, names)
+}
+
+
+pairwise_imd_model <- function(net, var_name) {
+  var_mat <- matrix(0,
+                    nrow = length(var_name$xvar) + length(var_name$yvar),
                     ncol = length(var_name$xvar) + length(var_name$yvar))
-  
-  dimnames(var_mat) <- list(c(var_name$xvar, var_name$yvar),
-                            c(var_name$xvar, var_name$yvar))
-  
+  dimnames(var_mat) <- list(c(var_name$xvar, var_name$yvar), c(var_name$xvar, var_name$yvar))
+
   plyr::l_ply(
     net,
-    .fun = function(i){
-      netdf <- data.frame(y = i$Y_id, x = gsub("^(.*)_.*", "\\1",i$from), imd = i$inv_d)
-      netdf <- na.omit(netdf)
-      netdf <- netdf %>% filter(
-        y %in% var_name$yvar & x %in% var_name$xvar
+    .fun = function(i) {
+      netdf <- data.frame(
+        y = i$Y_id,
+        x = gsub("^(.*)_.*", "\\1", i$from),
+        imd = i$inv_d
       )
-
-      plyr::l_ply(1:nrow(netdf),
-                  .fun = function(j) {
-
-                    var_mat[netdf[j,"x"],netdf[j,"y"]] <<- var_mat[netdf[j,"x"],netdf[j,"y"]] + netdf[j,"imd"]
-                    var_mat[netdf[j,"y"],netdf[j,"x"]] <<- var_mat[netdf[j,"y"],netdf[j,"x"]] + netdf[j,"imd"]
-                  })
+      netdf <- stats::na.omit(netdf)
+      netdf <- dplyr::filter(netdf, y %in% var_name$yvar & x %in% var_name$xvar)
+      if (nrow(netdf) == 0L) {
+        return(NULL)
+      }
+      plyr::l_ply(seq_len(nrow(netdf)), .fun = function(j) {
+        var_mat[netdf[j, "x"], netdf[j, "y"]] <<- var_mat[netdf[j, "x"], netdf[j, "y"]] + netdf[j, "imd"]
+        var_mat[netdf[j, "y"], netdf[j, "x"]] <<- var_mat[netdf[j, "y"], netdf[j, "x"]] + netdf[j, "imd"]
+      })
+      NULL
     }
   )
-  
-  return(var_mat)
-  
+
+  var_mat
 }

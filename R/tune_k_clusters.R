@@ -1,11 +1,15 @@
 # -------------------------------------------------------------------------------------------------------------
 #' k clusters tuning function
-#' @export
-#' @param dat A proximity or similarity matrix that use to cluster
+#' @param x A proximity/similarity matrix (or embedding input) for clustering.
 #' @param return_cluster A logical parameter that determine whether the clustering results to be returned
 #' @param plot_k A logical parameter that determine whether the plot of tuning should be showed
-#' @param input Input for clustering in PAM. The default is using the dissimilarity matrix 1-dat. The alternative option is
-#' using the first k + 1 eigenvectors from laplacian matrix (embed).
+#' @param method Clustering backend: `"PAM"` or `"Spectral"`.
+#' @param tune_method Tuning criterion for PAM (`"silhouette"` or `"ratio"`).
+#' @param gap_w Weighting scheme for spectral eigengap (`"uniform"` or `"log"`).
+#' @param prox Logical; whether `x` is a proximity matrix (converted to dissimilarity for PAM).
+#' @param k_tune Candidate cluster counts to evaluate.
+#' @param d Optional degree vector used by spectral clustering.
+#' @param ... Additional arguments passed to lower-level clustering functions.
 #'
 #' @return optimal number of k
 #' @inheritParams cluster::pam
@@ -15,9 +19,8 @@ tune_k_clusters <- function(x,...){
 }
 
 #' @rdname tune_k_clusters
-#' @export
 tune_k_clusters.default <- function(x, return_cluster = F, plot_k = F,
-                                    method = "PAM", tune_method = "silhouette", gap_w = "uniform", prox = F,...){
+                                    method = "Spectral", tune_method = "silhouette", gap_w = "uniform", prox = F,...){
 
   k_tune <- seq(2,12,by = 1)
 
@@ -73,8 +76,7 @@ tune_k_clusters.default <- function(x, return_cluster = F, plot_k = F,
 }
 
 #' @rdname tune_k_clusters
-#' @export
-tune_k_clusters.mrf3 <- function(x, return_cluster = F, plot_k = F, method = "PAM", tune_method = "silhouette", gap_w = "uniform", prox = F, ...){
+tune_k_clusters.mrf3 <- function(x, return_cluster = F, plot_k = F, method = "Spectral", tune_method = "silhouette", gap_w = "uniform", prox = F, ...){
 
   if(class(x)[2] %in% "cl"){
     x <- x$dat
@@ -137,13 +139,48 @@ tune_k_clusters.mrf3 <- function(x, return_cluster = F, plot_k = F, method = "PA
 #' @rdname tune_k_clusters
 #' @export
 spectral_cl <- function(x, k_tune = seq(2,12,by = 1), gap_w = "uniform", d = NULL, ...){
-  
-  if(is.null(d)){
+  x <- as.matrix(x)
+  if (!is.numeric(x) || nrow(x) != ncol(x)) {
+    stop("`x` must be a square numeric matrix.")
+  }
+  x[!is.finite(x)] <- 0
+  x <- (x + t(x)) / 2
+  x[x < 0] <- 0
+
+  if (is.null(d)) {
     d <- rowSums(x)
   }
-  l <- diag(1, nrow(x)) - diag(d^(-1/2)) %*% x %*% diag(d^(-1/2))
-  
-  e <- eigen(l, symmetric = T)
+  d <- as.numeric(d)
+  if (length(d) != nrow(x)) {
+    d <- rowSums(x)
+  }
+  eps <- 1e-8
+  d[!is.finite(d)] <- eps
+  d[d <= eps] <- eps
+  inv_sqrt_d <- 1 / sqrt(d)
+  l <- diag(1, nrow(x)) - diag(inv_sqrt_d) %*% x %*% diag(inv_sqrt_d)
+  l[!is.finite(l)] <- 0
+  l <- (l + t(l)) / 2
+
+  e <- tryCatch(eigen(l, symmetric = TRUE), error = function(e) NULL)
+  if (is.null(e)) {
+    k_grid <- as.integer(k_tune)
+    k_grid <- k_grid[is.finite(k_grid)]
+    k_grid <- unique(k_grid[k_grid >= 2 & k_grid <= max(2, nrow(x) - 1)])
+    if (length(k_grid) == 0L) {
+      k_grid <- as.integer(min(2, max(1, nrow(x) - 1)))
+    }
+    pam_fit <- pam_cl(1 - x, k_tune = k_grid, diss = TRUE, tune_method = "silhouette", ...)
+    return(list(
+      best_k = pam_fit$best_k,
+      cl = pam_fit$cl,
+      diff_e = NA_real_,
+      ev = NA_real_,
+      embed = NULL,
+      obj = pam_fit$obj,
+      sil = NA_real_
+    ))
+  }
   eigenvectors <- e$vectors
         
   if(length(k_tune) > 1){
@@ -172,7 +209,7 @@ spectral_cl <- function(x, k_tune = seq(2,12,by = 1), gap_w = "uniform", d = NUL
   mat <- as.matrix(eigenvectors[,(n-k+1):(n)])
   mat_norm <- mat/sqrt(rowSums(mat^2))
  
-  cl <- pam(mat, k = k, ...)
+  cl <- cluster::pam(mat, k = k, ...)
 
   embed <- as.matrix(eigenvectors[,(n-k):(n-1)])
   ei <- rev(e$values)[2:(k+1)]
@@ -187,22 +224,25 @@ spectral_cl <- function(x, k_tune = seq(2,12,by = 1), gap_w = "uniform", d = NUL
 #' @export
 pam_cl <- function(x, k_tune = seq(2,9,by = 1), diss = T, tune_method = "silhouette", ...){
   
-  sil <- c()
+  sil <- numeric(0)
   if(length(k_tune) > 1){
     if(!diss){
       x <- as.matrix(dist(x))
     } 
     
     if(tune_method == "ratio"){
-      k_tune <- c(k_tune, max(k_tune) + 1)
+      k_eval <- c(k_tune, max(k_tune) + 1)
       m <- 1-x
       dist_all <- mean(m)
-    } 
-    for (k in k_tune){
-      cl <- pam(x, k = k, diss = T, ...)
-      cl_cluster <- cl$cluster
+    } else {
+      k_eval <- k_tune
+    }
+    sil <- numeric(length(k_eval))
+    for (ii in seq_along(k_eval)){
+      k <- k_eval[ii]
+      cl <- cluster::pam(x, k = k, diss = T, ...)
       if(tune_method == "silhouette"){
-        sil <- c(sil, cl$objective[1] - cl$objective[2])
+        sil[ii] <- cl$objective[1] - cl$objective[2]
       }
       if(tune_method == "ratio"){
         cl_unique <- unique(cl$cluster)
@@ -211,7 +251,7 @@ pam_cl <- function(x, k_tune = seq(2,9,by = 1), diss = T, tune_method = "silhoue
           mean(m[cl$cluster == i,cl$cluster != i])
         })
         
-        sil <- c(sil,(mean(class_dist))/dist_all)
+        sil[ii] <- (mean(class_dist))/dist_all
       }
      
     }
@@ -221,7 +261,7 @@ pam_cl <- function(x, k_tune = seq(2,9,by = 1), diss = T, tune_method = "silhoue
     }
     if(tune_method == "ratio"){
 
-      diff_S <- abs(diff(sil))*log(k_tune[1:(max(k_tune) - 2)])
+      diff_S <- abs(diff(sil))*log(k_eval[1:(max(k_eval) - 2)])
 
       k <- which.max(diff_S) + 1
     }
@@ -230,7 +270,7 @@ pam_cl <- function(x, k_tune = seq(2,9,by = 1), diss = T, tune_method = "silhoue
     diff_S <- NULL
   }
   
-  cl <- pam(x, k = k, diss = diss, ...)
+  cl <- cluster::pam(x, k = k, diss = diss, ...)
   
   return(
     list(best_k = k, cl = cl$cluster, sil = sil, diff = diff_S, obj = cl$objective[2])

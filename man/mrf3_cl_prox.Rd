@@ -8,15 +8,20 @@ mrf3_cl_prox(
   rfit,
   k = NULL,
   enhanced = T,
-  thres = NULL,
   size_min = 5,
   use = "X",
   symm = T,
-  calc_imp = F,
+  leaf_embed_dim = 10,
+  merge_quantile = 0.9,
+  merge_mode = c("soft", "hard"),
+  sibling_gamma = 0.5,
+  sibling_fun = c("constant", "positive", "shift01", "abs", "identity"),
+  sibling_cap = TRUE,
+  hard_prox_mode = c("soft_enhanced", "binary"),
   parallel = T,
   sparse = F,
   method_cl = "PAM",
-  cores = max(detectCores() - 2, 20),
+  cores = max(1, detectCores() - 2),
   ...
 )
 }
@@ -28,7 +33,43 @@ mrf3_cl_prox(
 \item{enhanced}{A logical parameter that determines whether enhanced proximity is calculated when selecting Proximity as clustering method.
 The default is True.}
 
-\item{...}{Further arguments passed to or from other methods.}
+\item{size_min}{Minimum terminal-node size when computing enhanced proximity.}
+
+\item{use}{Which importance side to use in tree traversal, \code{"X"} or \code{"Y"}.}
+
+\item{symm}{Logical; whether to symmetrize directional proximities.}
+
+\item{leaf_embed_dim}{Dimension used for low-dimensional leaf embedding.}
+
+\item{merge_quantile}{Quantile threshold for sibling-pair merges in enhanced mode.
+\code{0.9} means keep top 10\\% highest sibling correlations each iteration.
+Used only when \code{merge_mode = "hard"}.}
+
+\item{merge_mode}{Enhanced-proximity merge mode: \code{"soft"} (default) or \code{"hard"}.
+\code{"hard"} performs iterative sibling merges; \code{"soft"} directly builds per-tree
+similarity with same-leaf = 1 and sibling-leaf = \code{sibling_gamma * f(corr)}.
+In practice, \code{"soft"} is generally more stable.}
+
+\item{sibling_gamma}{Multiplicative weight \code{gamma} used in soft merge mode.}
+
+\item{sibling_fun}{Correlation transform \code{f(corr)} used in soft merge mode.
+One of \code{"constant"}, \code{"positive"}, \code{"shift01"}, \code{"abs"}, \code{"identity"}.}
+
+\item{sibling_cap}{Logical; whether to cap soft sibling similarities at 1.}
+
+\item{hard_prox_mode}{Proximity construction used after hard merge:
+\code{"soft_enhanced"} uses same-enhanced-leaf = 1 and sibling-enhanced-leaf
+= \code{sibling_gamma * f(corr)}, while \code{"binary"} uses same-enhanced-leaf only.}
+
+\item{parallel}{Logical; whether to parallelize forest-level computation.}
+
+\item{sparse}{Logical; whether to sparsify the enhanced proximity matrix.}
+
+\item{method_cl}{Clustering backend (\code{"PAM"} or \code{"Spectral"}).}
+
+\item{cores}{Number of CPU cores used by parallel steps.}
+
+\item{...}{Additional arguments passed to downstream clustering helpers.}
 }
 \value{
 mrf3 clustering object
