@@ -1,18 +1,46 @@
 ## Utility functions for mrf3.R
 
+# Pre-process nativeArray once and split by treeID
+.prep_tree_dfs <- function(mod) {
+  na_raw <- mod$forest$nativeArray
+  na_df <- data.frame(na_raw)
+  node.stat <- mod$node.stats
+  if (!is.null(node.stat) && NROW(node.stat) == nrow(na_df)) {
+    for (col in setdiff(colnames(node.stat), colnames(na_df))) {
+      na_df[[col]] <- node.stat[[col]]
+    }
+  }
+  if (!"nodeSZ" %in% names(na_df)) na_df$nodeSZ <- 1L
+  if (!"dpthST" %in% names(na_df)) {
+    # Compute depth proxy when node.stats unavailable (rfsrc >= 3.5)
+    na_df$dpthST <- ave(na_df$nodeID, na_df$treeID,
+                        FUN = function(ids) seq_along(ids))
+  }
+  # Split once — returns a named list of per-tree data frames
+  split(na_df, na_df$treeID)
+}
+
 # Get tree net from random forest
-get_tree_net <- function(mod, tree.id){
+get_tree_net <- function(mod, tree.id, tree_dfs = NULL){
 
   xvar.names <- mod$xvar.names
   xvar.factor <- mod$xvar.factor
-  native.array <- mod$forest$nativeArray
-  native.f.array <- mod$forest$nativeFactorArray
 
-  node.stat <- mod$node.stats
-  native.array <- cbind(native.array, node.stat) %>% data.frame
-
-
-  tree.df <- native.array %>% dplyr::filter(treeID == tree.id)
+  if (!is.null(tree_dfs)) {
+    tree.df <- tree_dfs[[as.character(tree.id)]]
+  } else {
+    # Fallback: compute on the fly (slow, for backwards compat)
+    na_df <- data.frame(mod$forest$nativeArray)
+    node.stat <- mod$node.stats
+    if (!is.null(node.stat) && NROW(node.stat) == nrow(na_df)) {
+      for (col in setdiff(colnames(node.stat), colnames(na_df))) {
+        na_df[[col]] <- node.stat[[col]]
+      }
+    }
+    if (!"nodeSZ" %in% names(na_df)) na_df$nodeSZ <- 1L
+    if (!"dpthST" %in% names(na_df)) na_df$dpthST <- 1L
+    tree.df <- na_df[na_df$treeID == tree.id, , drop = FALSE]
+  }
 
   #converted.tree <- display.tree
   vars.id <- data.frame(var = c("<leaf>", xvar.names), parmID = 0:length(xvar.names), stringsAsFactors = FALSE)
@@ -34,61 +62,17 @@ get_tree_net <- function(mod, tree.id){
   tree.df$var.tip.id[tree.df$var != "<leaf>"] <- var.id
   tree.df$var.tip.id[tree.df$var == "<leaf>"] <- tree.df$var_count[tree.df$var == "<leaf>"]
 
-  from_node <- ""
-  edge_n <- max(0L, nrow(tree.df) - 1L)
-  network <- data.frame(
-    from = character(edge_n),
-    to = character(edge_n),
-    from_id = numeric(edge_n),
-    to_id = numeric(edge_n),
-    inv_d = numeric(edge_n),
-    edge = numeric(edge_n),
-    nodesize = numeric(edge_n),
-    stringsAsFactors = FALSE
+  is_leaf_vec <- tree.df$var == "<leaf>"
+
+  network <- build_tree_network_cpp(
+    var_conc   = tree.df$var_conc,
+    var_tip_id = tree.df$var.tip.id,
+    nodeSZ     = tree.df$nodeSZ,
+    dpthST     = tree.df$dpthST,
+    is_leaf    = is_leaf_vec
   )
-  edge_idx <- 0L
-  num.children <- data.frame(tree.df, children = 0)
-  num.children <- num.children[num.children$var != "<leaf>",, drop = FALSE]
-  num.children <- num.children[!duplicated(num.children$var_conc),, drop = FALSE]
-  num_children <- as.list(rep(0, nrow(num.children)))
-  names(num_children) <- num.children$var_conc
 
-  for (i in seq_len(nrow(tree.df))) {
-    rowi <- tree.df[i, ]
-    if (i == 1) {
-      from_node <- rowi$var_conc
-      from_id <- rowi$var.tip.id
-      ns_all <- rowi$nodeSZ
-      next
-    }
-
-    to_node <- rowi$var_conc
-    to_id <- rowi$var.tip.id
-    ns_part <- rowi$nodeSZ
-    dpthST <- 1/(rowi$dpthST)
-    edge_idx <- edge_idx + 1L
-    network$from[edge_idx] <- from_node
-    network$to[edge_idx] <- to_node
-    network$from_id[edge_idx] <- from_id
-    network$to_id[edge_idx] <- to_id
-    network$inv_d[edge_idx] <- dpthST
-    network$edge[edge_idx] <- ns_all/ns_part
-    network$nodesize[edge_idx] <- ns_part
-    num_children[[from_node]] <- num_children[[from_node]] + 1
-
-    if (rowi$var != "<leaf>") {
-      from_node <- to_node
-      from_id <- to_id
-      ns_all <- ns_part
-    } else if (i != nrow(tree.df)) {
-      while (num_children[[from_node]] == 2) {
-        from_node <- network$from[network$to == from_node]
-        from_id <- network$from_id[network$to_id == from_id]
-        ns_all <- ns_part
-      }
-    }
-  }
-
+  network <- data.frame(network, stringsAsFactors = FALSE)
 
   return(network)
 
@@ -150,87 +134,45 @@ get_leaf_ds <- function(mod, tree.membership, net){
 }
 
 # Get response outcome splitting scores for splits in a tree
-get_Y_imp <- function(net, tree.membership, dat, 
-                      robust = F, w = NULL, yprob = 1, seed = -5,
-                      permute = T,
-                      nperm     = 10,   # number of permutations per node
-                      alpha     = 0.05, 
-                      top = 5){ # p‐value cutoff)
-                      
-  
+get_Y_imp <- function(net, tree.membership, dat,
+                      robust = FALSE, w = NULL, yprob = 1, seed = -5,
+                      top = 5){
+
   node_id <- unique(net$from)
-  var_imp_ls <- llply(
-    node_id,
-    .fun = function(id){
-      children <- filter(.data = net, from %in% id)
-      mem_id <- children$mem_id
-      idx_node<- which(tree.membership %in% mem_id)
-      mem_selected <- tree.membership[idx_node]
-      Yt <- scale(dat[idx_node,])
-      
-      idx_L <- which(mem_selected %in% mem_id[1])
-      idx_R <- which(mem_selected %in% mem_id[2])
-      nL <- length(idx_L); nR <- length(idx_R)
-      q <- ncol(Yt)
-      
-      split_stat <- sapply(seq_len(q), function(j){
-        sum(Yt[idx_L, j])^2/nL +
-          sum(Yt[idx_R, j])^2/nR
-      })
+  dat_mat <- as.matrix(dat)
+  mem_int <- as.integer(tree.membership)
+
+  var_imp_ls <- lapply(node_id, function(id) {
+    children <- net[net$from == id, , drop = FALSE]
+    mem_id <- children$mem_id
+
+    # Use C++ for the heavy split statistic computation
+    split_stat <- compute_split_stats_cpp(
+      Y = dat_mat,
+      membership = mem_int,
+      mem_left  = as.integer(mem_id[1]),
+      mem_right = as.integer(mem_id[2])
+    )
+
+    if (robust) {
       split_stat_raw <- split_stat
-
-      #split_stat_sign <- sign(split_stat[[1]] - split_stat[[2]])
-      #split_stat <- Reduce("+", split_stat)
-      if (robust) {
-        if (permute) {
-          # null distribution via parallel plyr on permutation index
-          G_null <- matrix(0, nrow=q, ncol=nperm)
-          for(b in seq_len(nperm)){
-            set.seed(b)
-            permuted <- sample(nrow(Yt))
-            Yp       <- Yt[permuted, , drop = FALSE]
-            G_null[,b] <- sapply(seq_len(q), function(j){
-              sum(Yp[idx_L, j])^2/nL   +
-                sum(Yp[idx_R, j])^2/nR 
-            })
-          }
-          
-          pvals <- (rowSums(G_null >= split_stat) + 1)/(nperm + 1)
-          split_stat[pvals > alpha] <- 0
-        } else {
-          split_stat[order(split_stat, decreasing = T)[-c(1:top)]] <- 0
-        }
-        # Fallback: if robust filtering removes all signal, use unfiltered statistic.
-        if (!any(is.finite(split_stat) & split_stat != 0)) {
-          split_stat <- split_stat_raw
-        }
-      } else {
-
-        samp <- rep(1, length(split_stat))
-        if(!is.null(w)) {
-          ns <- min(ceiling(length(split_stat)*yprob), length(w[w != 0]))
-          w <- w/sum(w)
-          set.seed(seed)
-          samp0 <- sample.int(length(split_stat), ns, prob = w)
-          samp0 <- (1:length(split_stat))[-samp0]
-          samp[samp0] <- 0
-        } else {
-          set.seed(seed)
-          samp0 <- sample.int(length(split_stat), ceiling(length(split_stat)/3))
-          samp[samp0] <- 0
-        }
-        
+      keep_idx <- order(split_stat, decreasing = TRUE)[seq_len(min(top, length(split_stat)))]
+      mask <- rep(0, length(split_stat))
+      mask[keep_idx] <- 1
+      split_stat <- split_stat * mask
+      if (!any(is.finite(split_stat) & split_stat != 0)) {
+        split_stat <- split_stat_raw
       }
-      
-      
-      idx <- which.max(split_stat)
-      varY <- mean(split_stat)
-      varY_all <- split_stat#/(nL + nR)
-      names(varY_all) <- colnames(dat)
-      names(varY) <- colnames(dat)[idx]
-      
-      list(varY = varY, varY_all = varY_all)
-    }, .parallel = F)
+    }
+
+    idx <- which.max(split_stat)
+    varY <- mean(split_stat)
+    varY_all <- split_stat
+    names(varY_all) <- colnames(dat)
+    names(varY) <- colnames(dat)[idx]
+
+    list(varY = varY, varY_all = varY_all)
+  })
 
   var_imp <- unlist(var_imp_ls %>% purrr::map("varY"))
   var_imp_all <- Reduce(rbind, var_imp_ls %>% purrr::map("varY_all"))
@@ -240,10 +182,7 @@ get_Y_imp <- function(net, tree.membership, dat,
 }
 
 # Get importance for leaves in a tree
-get_tree_imp <- function(mod, dat = NULL, robust = F, tree.membership, net, calc = "Both", M = NULL, w = NULL, yprob = 1, weighted = F, seed = -5,
-                         permute = T,
-                         nperm     = 10,   # number of permutations per node
-                         alpha     = 0.05 ){
+get_tree_imp <- function(mod, dat = NULL, robust = F, tree.membership, net, calc = "Both", M = NULL, w = NULL, yprob = 1, weighted = F, seed = -5){
 
   if(is.null(dat)){
     dat <- mod$xvar
@@ -276,10 +215,7 @@ get_tree_imp <- function(mod, dat = NULL, robust = F, tree.membership, net, calc
 
   if(calc %in% c("Both", "Y")){
 
-    impY_ls <- get_Y_imp(net = match_old_net, tree.membership = tree.membership, robust = robust, dat = datY, yprob = yprob, seed = seed, 
-                         permute = permute,
-                         nperm     = nperm,   # number of permutations per node
-                         alpha     = alpha )
+    impY_ls <- get_Y_imp(net = match_old_net, tree.membership = tree.membership, robust = robust, dat = datY, yprob = yprob, seed = seed)
     impY <- impY_ls$var_imp
     updated_net$Y_id[unique(match(match_old_net$from, updated_net$from))] <- names(impY)
     scores_impY <- updated_net$inv_d[match(unique(match_old_net$from), updated_net$from)] 
@@ -297,10 +233,7 @@ get_tree_imp <- function(mod, dat = NULL, robust = F, tree.membership, net, calc
 
     imp_var <- top_node_info[match(use_sample, top_node_info$from),"from"]
     if(robust) {
-      impX_ls <- get_Y_imp(net = match_old_net, tree.membership = tree.membership, robust = robust, dat = dat, yprob = yprob, seed = seed, 
-                           permute = permute,
-                           nperm     = nperm,   # number of permutations per node
-                           alpha     = alpha )
+      impX_ls <- get_Y_imp(net = match_old_net, tree.membership = tree.membership, robust = robust, dat = dat, yprob = yprob, seed = seed)
       impX <- impX_ls$var_imp
     }
    
@@ -352,13 +285,11 @@ get_tree_imp <- function(mod, dat = NULL, robust = F, tree.membership, net, calc
 }
 
 # Update tree importance from bottom to top
-update_iter_imp <- function(mod, tree.id, calc = "Both", robust = F, w = NULL, yprob = 1, weighted = F, seed = -5,
-                            permute = T,
-                            nperm     = 10,   # number of permutations per node
-                            alpha     = 0.05 ) {
+update_iter_imp <- function(mod, tree.id, calc = "Both", robust = FALSE, w = NULL, yprob = 1, weighted = FALSE, seed = -5,
+                            tree_dfs  = NULL) {
 
   # Get the tree structure for the specified tree.id
-  net <- get_tree_net(mod = mod, tree.id = tree.id)
+  net <- get_tree_net(mod = mod, tree.id = tree.id, tree_dfs = tree_dfs)
 
   # Get the membership information for the specified tree.id
   mem <- mod$membership[, tree.id]
@@ -424,10 +355,7 @@ update_iter_imp <- function(mod, tree.id, calc = "Both", robust = F, w = NULL, y
       w = w,
       yprob = yprob,
       weighted = weighted,
-      seed = seed,
-      permute = permute,
-      nperm     = nperm,   # number of permutations per node
-      alpha     = alpha 
+      seed = seed
     )
 
     # Update 'net', 'mem', and 'dat' with the results from 'update_ls'
@@ -551,15 +479,9 @@ add_lambda <- function(imp_ls, net, x_freq, lambda){
 #' @param yprob Response sampling proportion used in node-level updates.
 #' @param cores Number of CPU cores used when `parallel = TRUE`.
 #' @param seed Random seed passed to stochastic components.
-#' @param permute Logical; whether to use permutation testing in robust updates.
-#' @param nperm Number of permutations per node when `permute = TRUE`.
-#' @param alpha Significance level for permutation filtering.
 #' @rdname get_imp_forest
-get_imp_forest <- function(mod, parallel = T, robust = F, calc = "Both", weighted = F, use_depth = F, normalized = F, 
-                           w = NULL, yprob = 1, cores = max(1, detectCores() - 2), seed = -5,
-                           permute = T,
-                           nperm     = 10,   # number of permutations per node
-                           alpha     = 0.05 ){
+get_imp_forest <- function(mod, parallel = T, robust = F, calc = "Both", weighted = F, use_depth = F, normalized = F,
+                           w = NULL, yprob = 1, cores = max(1, detectCores() - 2), seed = -5){
 
   nt <- mod$ntree
 
@@ -581,6 +503,9 @@ get_imp_forest <- function(mod, parallel = T, robust = F, calc = "Both", weighte
     if(calc == "X") {cc <- "X";idx <- c("X")}
     if(calc == "Y") {cc <- "Y";idx <- c("Y")}
 
+    # Pre-process nativeArray ONCE, split by tree — avoids per-tree overhead
+    tree_dfs <- .prep_tree_dfs(mod)
+
     results <- plyr::llply(1:nt,
                        .fun = function(t){
                          update_iter_imp(mod,
@@ -591,9 +516,7 @@ get_imp_forest <- function(mod, parallel = T, robust = F, calc = "Both", weighte
                                          w = w,
                                          weighted = weighted,
                                          seed = seed,
-                                         permute = permute,
-                                         nperm     = nperm,   # number of permutations per node
-                                         alpha     = alpha )
+                                         tree_dfs  = tree_dfs)
                        }, .parallel = parallel)
 
     imp <- purrr::map(results, "imp_ls")
@@ -616,7 +539,11 @@ get_imp_forest <- function(mod, parallel = T, robust = F, calc = "Both", weighte
     } else {
       imp_ls <- plyr::llply(idx,
                             .fun = function(im){
-                              im_df <- Reduce(cbind, purrr::map(imp, im))
+                              raw <- purrr::map(imp, im)
+                              lens <- vapply(raw, length, integer(1))
+                              raw <- raw[lens > 0L]
+                              if (length(raw) == 0L) return(NULL)
+                              im_df <- Reduce(cbind, raw)
                               if(!is.null(ncol(im_df))){
                                 if(use_depth) {
                                   rs <- rowSums(im_df != 0)
@@ -690,17 +617,11 @@ get_iv <- function(var_name, imp){
 #' @param w Optional case weights.
 #' @param cores Number of CPU cores used when `parallel = TRUE`.
 #' @param seed Random seed passed to stochastic components.
-#' @param permute Logical; whether to use permutation testing in robust updates.
-#' @param nperm Number of permutations per node when `permute = TRUE`.
-#' @param alpha Significance level for permutation filtering.
 #' @param ... Additional arguments for downstream helper functions.
 #' @rdname get_multi_weights
 get_multi_weights <- function(mod_list, dat.list, y = NULL, weighted = F,  use_depth = F, robust = F,
                               parallel = T, normalized = T, calc = "Both", yprob = 1,
-                              w = NULL, cores = max(1, detectCores() - 2), seed = -5, 
-                              permute = T,
-                              nperm     = 10,   # number of permutations per node
-                              alpha     = 0.05, ...){
+                              w = NULL, cores = max(1, detectCores() - 2), seed = -5, ...){
 
   mod_names <- names(mod_list)
   # if(length(lambda) == 1) {
@@ -709,9 +630,7 @@ get_multi_weights <- function(mod_list, dat.list, y = NULL, weighted = F,  use_d
   # }
 
   results <- get_results(mod_list = mod_list, parallel = parallel, robust = robust, weighted = weighted, normalized = F, use_depth = use_depth,
-                         calc = calc, w = w, cores = cores, yprob = yprob, seed = seed, permute = permute,
-                         nperm     = nperm,   # number of permutations per node
-                         alpha     = alpha)
+                         calc = calc, w = w, cores = cores, yprob = yprob, seed = seed)
 
   net <- purrr::map(results, "net")
   weight_l <- purrr::map(results, "wl")
@@ -873,12 +792,9 @@ cal_freq <- function(mod, net){
 #   weight_list
 # }
 
-get_results <- function(mod_list, parallel, 
+get_results <- function(mod_list, parallel,
                         normalized = F, weighted = F, robust = F,
-                        use_depth = F, calc, w = NULL, yprob = 1, cores = max(1, detectCores() - 2), seed = -5, 
-                        permute = T,
-                        nperm     = 10,   # number of permutations per node
-                        alpha     = 0.05){
+                        use_depth = F, calc, w = NULL, yprob = 1, cores = max(1, detectCores() - 2), seed = -5){
 
   mod_names <- names(mod_list)
   plyr::llply(
@@ -890,10 +806,9 @@ get_results <- function(mod_list, parallel,
       if(!is.null(w)) {
         w0 <- w[[gsub("_.*", "", m_name)]]
       } else {w0 <- NULL}
-      results <- get_imp_forest(mod, parallel = parallel, robust = robust, normalized = normalized, 
-                                weighted = weighted, calc = calc,  w = w0, 
-                                yprob = yprob, cores = cores, use_depth = use_depth, seed = seed, permute = permute,
-                                nperm = nperm, alpha = alpha)
+      results <- get_imp_forest(mod, parallel = parallel, robust = robust, normalized = normalized,
+                                weighted = weighted, calc = calc,  w = w0,
+                                yprob = yprob, cores = cores, use_depth = use_depth, seed = seed)
 
       wl <- results$imp_ls
       wl_init <- results$imp_ls_init

@@ -15,7 +15,7 @@ get_param <- function(x){
   )
 }
 
-em <- function(x1, p, mu, sigma, iter, eps, verbose = F, c1 = "truncn", c2 = "gamma"){
+em <- function(x1, p, mu, sigma, iter, eps, verbose = FALSE, c1 = "truncn", c2 = "gamma"){
   i <- 0
   diff <- 1
 
@@ -52,7 +52,7 @@ em <- function(x1, p, mu, sigma, iter, eps, verbose = F, c1 = "truncn", c2 = "ga
     prop <- comp1/(comp1 + comp2)
 
     # M step
-    p1 <- mean(prop, na.rm = T)
+    p1 <- mean(prop, na.rm = TRUE)
 
     if(c1  == "truncn") {
       delta_m <- sigma[1] * dnorm(mu[1]/sigma[1])/pnorm(mu[1]/sigma[1])

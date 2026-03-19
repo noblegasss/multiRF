@@ -72,17 +72,16 @@
           <h2>2. Example Data</h2>
           <p>The package ships a TCGA BRCA dataset with three matched omics blocks (gene expression, methylation, miRNA) and clinical annotations.</p>
 <pre><code>library(multiRF)
-data("tcga_brca")
-data("tcga_brca_clinical")
+data("tcga_brca_data")  # loads tcga_brca and tcga_brca_clinical
 
 names(tcga_brca)
 dim(tcga_brca$gene)
 dim(tcga_brca$methy)
 dim(tcga_brca$mirna)</code></pre>
 <pre class="r-output">#&gt; [1] "gene"  "methy" "mirna"
-#&gt; [1] 192 375
-#&gt; [1] 192 356
-#&gt; [1] 192 100</pre>
+#&gt; [1] 674 200
+#&gt; [1] 674 200
+#&gt; [1] 674 100</pre>
           <div class="note">
             <strong>Note.</strong> Samples must be aligned across all omics blocks. Each
             block is a matrix-like object with samples in rows and features in columns.
@@ -122,7 +121,6 @@ dim(tcga_brca$mirna)</code></pre>
               <tr><td><code>plot_tsne()</code></td><td>Similarity / reconstruction</td><td>Do clusters separate in a nonlinear embedding?</td></tr>
               <tr><td><code>plot_umap()</code></td><td>Similarity / reconstruction</td><td>Is there robust manifold structure?</td></tr>
               <tr><td><code>plot_embed()</code></td><td>Matrix</td><td>Quick overview before deeper plots.</td></tr>
-              <tr><td><code>plot_heatmap()</code></td><td>Similarity / fused block</td><td>Are samples or blocks visibly separated?</td></tr>
               <tr><td><code>plot_network()</code></td><td>Similarity graph</td><td>Which sample relations dominate?</td></tr>
               <tr><td><code>plot_weights()</code></td><td>IMD weights</td><td>Which features drive the result?</td></tr>
               <tr><td><code>plot_circos()</code></td><td>Adjacency structure</td><td>How are modules connected globally?</td></tr>
@@ -196,11 +194,13 @@ get_top_vars(fit, n = 10)</code></pre>
 #&gt; 2    hsa-miR-155-5p   0.04672
 #&gt; ...</pre>
 
-          <h3>4.2. Comparing clustering backends</h3>
+          <h3>4.2. Clustering backends</h3>
+          <p>The global clustering backend is controlled by <code>main_clustering</code>.
+          All three options are compared against PAM50 subtypes in <a href="#comparison">Section 8</a>.</p>
           <div class="grid-2">
             <div>
               <strong>Similarity (default)</strong>
-<pre><code>fit_sim &lt;- mrf3(
+<pre><code>fit_similarity &lt;- mrf3(
   tcga_brca, k = 4,
   main_clustering = "similarity",
   ntree = 100, seed = 529
@@ -208,14 +208,14 @@ get_top_vars(fit, n = 10)</code></pre>
             </div>
             <div>
               <strong>Proximity</strong>
-<pre><code>fit_prox &lt;- mrf3(
+<pre><code>fit_proximity &lt;- mrf3(
   tcga_brca, k = 4,
   main_clustering = "proximity",
   ntree = 100, seed = 529
 )</code></pre>
             </div>
           </div>
-<pre><code>fit_enh &lt;- mrf3(
+<pre><code>fit_enhanced &lt;- mrf3(
   tcga_brca, k = 4,
   main_clustering = "enhanced_proximity",
   ntree = 100, seed = 529
@@ -371,16 +371,9 @@ plot_umap(mod = fit_robust,
             <figcaption>Figure 1. t-SNE embedding of the fused similarity matrix. Left: colored by multiRF cluster (k = 4). Right: colored by PAM50 molecular subtype from TCGA annotations.</figcaption>
           </figure>
 
-          <h3>7.2. Heatmap and network</h3>
-<pre><code>plot_heatmap(dat = fit, group = get_clusters(fit),
-             source = "specific_shared")
-
-plot_network(dat = fit, group = get_clusters(fit),
+          <h3>7.2. Network</h3>
+<pre><code>plot_network(dat = fit, group = get_clusters(fit),
              source = "specific_shared", cutoff = 0.3)</code></pre>
-          <figure class="plot-figure">
-            <img src="assets/img/heatmap_similarity.png" alt="Fused similarity heatmap ordered by cluster">
-            <figcaption>Figure 2. Fused similarity matrix ordered by cluster assignment. Block-diagonal structure indicates well-separated clusters.</figcaption>
-          </figure>
 
           <h3>7.3. Feature importance</h3>
 <pre><code>plot_weights(fit_vs, weight_source = "imd", top = 15)
@@ -392,12 +385,8 @@ plot_weights(fit_robust, weight_source = "cluster_imd",
             <figcaption>Figure 3. Top 15 features by IMD weight for each omics block (gene expression, methylation, miRNA).</figcaption>
           </figure>
 
-          <h3>7.4. Circos and reconstruction views</h3>
-<pre><code>plot_circos(mat = fit$reconstruction$W$W_all)
-
-plot_heatmap(dat = fit,
-             source = "reconstruction_fused_block",
-             omics = "gene")</code></pre>
+          <h3>7.4. Circos</h3>
+<pre><code>plot_circos(mat = fit$reconstruction$W$W_all)</code></pre>
 
           <h3>7.5. Survival analysis</h3>
 <pre><code>clinical_ids &lt;- tcga_brca_clinical$sampleID
@@ -420,8 +409,9 @@ plot_km(test_var = get_clusters(fit)[common_ids],
           <h2>8. Method Comparison Strategy</h2>
 
           <h3>Compare clusters against PAM50 subtypes</h3>
-          <p>Use the bundled clinical annotations to compare clustering solutions against known PAM50 molecular subtypes:</p>
-<pre><code># Align samples between fit and clinical data
+          <p>Use the bundled clinical annotations to compare the three clustering
+          backends (fitted in <a href="#workflow">Section 4</a>) against known PAM50 molecular subtypes:</p>
+<pre><code># Align samples
 common_ids &lt;- intersect(
   names(get_clusters(fit)),
   tcga_brca_clinical$sampleID
@@ -430,28 +420,23 @@ pam50 &lt;- tcga_brca_clinical$BRCA_Subtype_PAM50[
   match(common_ids, tcga_brca_clinical$sampleID)
 ]
 
-# Compare main clusters vs PAM50
-cluster_metrics(
-  get_clusters(fit)[common_ids],
-  pam50
-)
-
-# Compare multiple solutions vs PAM50
+# Pairwise ARI matrix (backends + PAM50)
 cluster_metric_matrix(
   list(
-    main   = get_clusters(fit)[common_ids],
-    robust = fit_robust$robust_clusters[common_ids],
-    PAM50  = pam50
+    similarity         = get_clusters(fit_similarity)[common_ids],
+    proximity          = get_clusters(fit_proximity)[common_ids],
+    enhanced_proximity = get_clusters(fit_enhanced)[common_ids],
+    PAM50              = pam50
   ),
   metric = "ari"
-)</code></pre>
-<pre class="r-output">#&gt;     n       ari   jaccard       nmi    purity
-#&gt; 1 192 0.3215478 0.3082461 0.4316287 0.6927083
+)
 
-#&gt;              main    robust     PAM50
-#&gt; main   1.0000000 0.7823415 0.3215478
-#&gt; robust 0.7823415 1.0000000 0.3487621
-#&gt; PAM50  0.3215478 0.3487621 1.0000000</pre>
+# Per-backend metrics vs PAM50
+rbind(
+  similarity         = cluster_metrics(get_clusters(fit_similarity)[common_ids], pam50),
+  proximity          = cluster_metrics(get_clusters(fit_proximity)[common_ids], pam50),
+  enhanced_proximity = cluster_metrics(get_clusters(fit_enhanced)[common_ids], pam50)
+)</code></pre>
 
           <h3>Recommended workflow</h3>
           <ol>
@@ -461,6 +446,27 @@ cluster_metric_matrix(
             <li>Visualize with <code>plot_weights()</code>, <code>plot_heatmap()</code>, <code>plot_tsne()</code>.</li>
             <li>Promote shortlisted settings into <code>run_robust_clustering = TRUE</code>.</li>
           </ol>
+
+          <h3>multiRF-sub</h3>
+          <p>For larger blocks, the sub-MRF ensemble mode should be compared as another workflow variant rather than left out of the benchmark.</p>
+<pre><code>fit_sub &lt;- mrf3_fit(
+  dat.list = tcga_brca,
+  k = 4,
+  ntree = 200,
+  sub_mrf = TRUE,
+  sub_mrf_args = list(
+    n_sub = 10,
+    frac_response = 0.2,
+    frac_predictor = 0.2,
+    ntree_per_sub = 20
+  ),
+  run_imd = TRUE,
+  seed = 529
+)
+
+summary(fit_sub)
+table(get_clusters(fit_sub))
+cluster_metrics(get_clusters(fit_sub)[common_ids], pam50)</code></pre>
         </section>
 
         <!-- 9. API Reference -->

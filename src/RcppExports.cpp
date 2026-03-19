@@ -10,6 +10,35 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// build_tree_network_cpp
+List build_tree_network_cpp(CharacterVector var_conc, IntegerVector var_tip_id, IntegerVector nodeSZ, NumericVector dpthST, LogicalVector is_leaf);
+RcppExport SEXP _multiRF_build_tree_network_cpp(SEXP var_concSEXP, SEXP var_tip_idSEXP, SEXP nodeSZSEXP, SEXP dpthSTSEXP, SEXP is_leafSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< CharacterVector >::type var_conc(var_concSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type var_tip_id(var_tip_idSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type nodeSZ(nodeSZSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type dpthST(dpthSTSEXP);
+    Rcpp::traits::input_parameter< LogicalVector >::type is_leaf(is_leafSEXP);
+    rcpp_result_gen = Rcpp::wrap(build_tree_network_cpp(var_conc, var_tip_id, nodeSZ, dpthST, is_leaf));
+    return rcpp_result_gen;
+END_RCPP
+}
+// compute_split_stats_cpp
+NumericVector compute_split_stats_cpp(NumericMatrix Y, IntegerVector membership, int mem_left, int mem_right);
+RcppExport SEXP _multiRF_compute_split_stats_cpp(SEXP YSEXP, SEXP membershipSEXP, SEXP mem_leftSEXP, SEXP mem_rightSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type Y(YSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type membership(membershipSEXP);
+    Rcpp::traits::input_parameter< int >::type mem_left(mem_leftSEXP);
+    Rcpp::traits::input_parameter< int >::type mem_right(mem_rightSEXP);
+    rcpp_result_gen = Rcpp::wrap(compute_split_stats_cpp(Y, membership, mem_left, mem_right));
+    return rcpp_result_gen;
+END_RCPP
+}
 // tsne_cost_gradient_cpp
 NumericMatrix tsne_cost_gradient_cpp(NumericMatrix Y, NumericMatrix P);
 RcppExport SEXP _multiRF_tsne_cost_gradient_cpp(SEXP YSEXP, SEXP PSEXP) {
@@ -24,6 +53,8 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_multiRF_build_tree_network_cpp", (DL_FUNC) &_multiRF_build_tree_network_cpp, 5},
+    {"_multiRF_compute_split_stats_cpp", (DL_FUNC) &_multiRF_compute_split_stats_cpp, 4},
     {"_multiRF_tsne_cost_gradient_cpp", (DL_FUNC) &_multiRF_tsne_cost_gradient_cpp, 2},
     {NULL, NULL, 0}
 };

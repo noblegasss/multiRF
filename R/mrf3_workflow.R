@@ -304,6 +304,7 @@ mrf3_fit <- function(dat.list,
   stage_cluster_imd <- NULL
   stage_variable_selection <- NULL
   branch_robust_clustering <- NULL
+  do_cluster_imd <- FALSE
   run_variable_selection_exec <- isTRUE(run_variable_selection) || isTRUE(run_robust_clustering)
   need_imd <- isTRUE(run_imd) || isTRUE(run_variable_selection_exec)
   if (need_imd) {
@@ -375,8 +376,8 @@ mrf3_fit <- function(dat.list,
       final_imd_args <- utils::modifyList(default_imd_args, imd_args)
       stage_imd <- do.call(get_multi_weights, final_imd_args)
     }
-    ## Resolve run_cluster_imd: default inherits from run_imd
-    do_cluster_imd <- if (is.null(run_cluster_imd)) isTRUE(run_imd) else isTRUE(run_cluster_imd)
+    ## Resolve run_cluster_imd: default is FALSE unless explicitly requested
+    do_cluster_imd <- isTRUE(run_cluster_imd)
 
     if (isTRUE(run_imd) && do_cluster_imd) {
       cluster_labels <- NULL

@@ -53,8 +53,10 @@ plot_km <- function(test_var, time_var, event_var, pheno_mat, cut = "median", ..
     data = df,
     size = 1,
     palette = "jco",
-    conf.int = F,
-    pval = T,
+    conf.int = FALSE,
+    pval = TRUE,
+    pval.coord = c(0, 0.15),
+    legend = c(0.8, 0.85),
     risk.table = TRUE,
     ...
   )

@@ -4,7 +4,6 @@
 \alias{plot_tsne}
 \alias{plot_network}
 \alias{plot_weights}
-\alias{plot_heatmap}
 \alias{plot_circos}
 \alias{plot_embed}
 \alias{plot_umap}
@@ -56,18 +55,6 @@ plot_weights(
   labels = NULL,
   weight_source = "auto",
   cluster = NULL
-)
-
-plot_heatmap(
-  dat,
-  group = NULL,
-  cluster_cols = TRUE,
-  fontsize_row = 5,
-  border_color = NA,
-  source = "auto",
-  omics = NULL,
-  cluster = NULL,
-  ...
 )
 
 plot_circos(
@@ -170,13 +157,6 @@ For \code{plot_weights()}, supported values are:
 \item{labels}{Optional panel labels in \code{plot_weights()}.}
 
 \item{weight_source}{Alias of \code{source} used by \code{plot_weights()}.}
-
-\item{cluster_cols}{boolean values determining if columns should be clustered or \code{hclust} object.}
-
-\item{fontsize_row}{fontsize for rownames (Default: fontsize)}
-
-\item{border_color}{color of cell borders on heatmap, use NA if no border should be 
-drawn.}
 
 \item{mat}{numeric matrix of the values to be plotted.}
 

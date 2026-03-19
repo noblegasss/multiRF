@@ -31,7 +31,6 @@ Imports:
     Matrix,
     matrixStats,
     maxstat,
-    pheatmap,
     plyr,
     purrr,
     randomForestSRC,
@@ -49,6 +48,7 @@ Imports:
     utils
 Depends:
     R (>= 4.3)
+LazyData: true
 LinkingTo: Rcpp
 Suggests: 
     InterSIM,

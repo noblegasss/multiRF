@@ -284,6 +284,7 @@ plot_tsne <- function(dat = NULL, mod = NULL, group = NULL, label_group = TRUE, 
   } else if (length(group) != nrow(embed)) {
     stop("Length of `group` (", length(group), ") does not match embedding rows (", nrow(embed), ").")
   }
+  group <- as.factor(group)
 
   df <- data.frame(tSNE1 = embed[,1], tSNE2 = embed[,2], group = group)
   df <- na.omit(df)
@@ -457,37 +458,6 @@ plot_weights <- function(weights, plot.which = "all", top = 20, labels = NULL, w
 }
 
 
-#' @param weights A list of weights get from mrf3
-#' @param group Class group
-#' @inheritParams pheatmap::pheatmap
-#'
-#' @export
-#' @rdname plot_tsne
-
-plot_heatmap <- function(dat, group = NULL, cluster_cols = TRUE,
-                         fontsize_row = 5, border_color = NA, source = "auto", omics = NULL, cluster = NULL,
-                         ...){
-
-  dat <- extract_plot_matrix(dat, source = source, omics = omics, cluster = cluster)
-
-  if(!is.null(group)){
-
-    annotation <- data.frame(Cluster = as.factor(group))
-    rownames(annotation) <- rownames(dat)
-    mat <- dat
-
-  } else {
-    mat <- dat
-    annotation <- NA
-  }
-
-  pheatmap::pheatmap(t(mat), annotation_col = annotation,
-           show_colnames = FALSE,
-           cluster_cols = cluster_cols,
-           fontsize_row = fontsize_row,
-           border_color = border_color,
-           ...)
-}
 
 #' @export
 #' @rdname plot_tsne
@@ -606,6 +576,7 @@ plot_umap <- function(dat, group = NULL, main = "UMAP", label_group = TRUE,
   t <- umap::umap(x, config = config, method = method)
 
   if(is.null(group)) group <- rep("black", nrow(dat))
+  group <- as.factor(group)
 
   df <- data.frame(umap1 = t$layout[,1], umap2 = t$layout[,2], group = group)
   df <- na.omit(df)

@@ -355,7 +355,10 @@ test_fn <- function(wl, connection, dat_names, sig.thres = 0.05) {
                 pls <- plyr::llply(
                   names(w[[1]]),
                   .fun = function(j) {
-                    mat <- Reduce(cbind, purrr::map(w, j) )
+                    raw_j <- purrr::map(w, j)
+                    raw_j <- raw_j[vapply(raw_j, length, integer(1)) > 0L]
+                    if (length(raw_j) == 0L) return(list(keep_idx = NULL, pval = NULL, ts = NULL))
+                    mat <- Reduce(cbind, raw_j)
 
                     mu <- mean(mat)
 
@@ -398,8 +401,13 @@ test_fn <- function(wl, connection, dat_names, sig.thres = 0.05) {
 
   keep_res <- plyr::llply(dat_names,
               .fun = function(d) {
-                keep <- Reduce(cbind, purrr::map(keep_idx, d) )
-                ts <- Reduce(cbind, purrr::map(ts, d))
+                keep_raw <- purrr::map(keep_idx, d)
+                keep_raw <- keep_raw[vapply(keep_raw, function(x) length(x) > 0L, logical(1))]
+                if (length(keep_raw) == 0L) return(list(keep_idx = rep(0L, length(d)), pval = NULL, ts = NULL))
+                keep <- Reduce(cbind, keep_raw)
+                ts_raw <- purrr::map(ts, d)
+                ts_raw <- ts_raw[vapply(ts_raw, function(x) length(x) > 0L, logical(1))]
+                ts <- if (length(ts_raw) > 0L) Reduce(cbind, ts_raw) else NULL
                 if(is.null(ncol(ts))) ts <- ts else ts <- colMeans(ts)
 
 
@@ -409,7 +417,9 @@ test_fn <- function(wl, connection, dat_names, sig.thres = 0.05) {
                   keep <- keep == 1
                 }
                 keep_idx <- ifelse(keep, 1, 0)
-                p <- Reduce(cbind, purrr::map(p, d))
+                p_raw <- purrr::map(p, d)
+                p_raw <- p_raw[vapply(p_raw, function(x) length(x) > 0L, logical(1))]
+                p <- if (length(p_raw) > 0L) Reduce(cbind, p_raw) else NULL
                 list(keep_idx = keep_idx,
                      pval = p,
                      ts = ts)
