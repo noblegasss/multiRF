@@ -62,7 +62,263 @@ struct MatrixView {
   inline double operator()(int i, int j) const { return data[i + j * nrow_]; }
 };
 
-// ──────────────── Single tree ────────────────
+// ──────────────── Pre-sorted split (fast path) ────────────────
+
+// Pre-sort all X columns. Returns sort_order[j] = sample indices sorted by X[,j].
+template <typename XMat>
+static std::vector<std::vector<int>> presort_columns(
+    const XMat& X, int n, int px)
+{
+  std::vector<std::vector<int>> sort_order(px);
+  for (int j = 0; j < px; j++) {
+    sort_order[j].resize(n);
+    std::iota(sort_order[j].begin(), sort_order[j].end(), 0);
+    std::sort(sort_order[j].begin(), sort_order[j].end(),
+              [&](int a, int b){ return X(a, j) < X(b, j); });
+  }
+  return sort_order;
+}
+
+// Fast split using pre-sorted indices.
+// in_node[i] = true if sample i belongs to current node.
+// sort_order[j] = global sorted indices for X column j.
+template <typename XMat, typename YMat>
+static bool find_best_split_fast(
+    const XMat& X, const YMat& Y,
+    const std::vector<int>& samples,          // samples in this node
+    const std::vector<bool>& in_node,         // n-length flag
+    const std::vector<std::vector<int>>& sort_order,
+    int mtry, int ytry, int nodesize_min,
+    std::mt19937& rng,
+    int& best_var, double& best_val, double& best_score,
+    std::vector<int>& left_samples, std::vector<int>& right_samples,
+    std::vector<double>& best_y_stats)
+{
+  int n_node = (int)samples.size();
+  int n_total = (int)sort_order[0].size();  // full sample size
+  int px = X.ncol();
+  int qy = Y.ncol();
+
+  if (n_node < 2 * nodesize_min) return false;
+
+  // Random subset of X columns (mtry)
+  std::vector<int> x_candidates(px);
+  std::iota(x_candidates.begin(), x_candidates.end(), 0);
+  std::shuffle(x_candidates.begin(), x_candidates.end(), rng);
+  int n_x_try = std::min(mtry, px);
+
+  // Random subset of Y columns (ytry)
+  std::vector<int> y_candidates(qy);
+  std::iota(y_candidates.begin(), y_candidates.end(), 0);
+  std::shuffle(y_candidates.begin(), y_candidates.end(), rng);
+  int n_y_try = std::min(ytry, qy);
+
+  // Pre-standardize selected Y columns within this node
+  std::vector<double> y_means(n_y_try, 0.0);
+  std::vector<double> y_sds(n_y_try, 1.0);
+  for (int jj = 0; jj < n_y_try; jj++) {
+    int j = y_candidates[jj];
+    double sum = 0.0;
+    for (int k = 0; k < n_node; k++) sum += Y(samples[k], j);
+    y_means[jj] = sum / n_node;
+  }
+  for (int jj = 0; jj < n_y_try; jj++) {
+    int j = y_candidates[jj];
+    double ss = 0.0;
+    for (int k = 0; k < n_node; k++) {
+      double d = Y(samples[k], j) - y_means[jj];
+      ss += d * d;
+    }
+    double var = (n_node > 1) ? ss / n_node : 1.0;
+    y_sds[jj] = (var > 1e-12) ? std::sqrt(var) : 1.0;
+  }
+
+  best_score = -1.0;
+  best_var = -1;
+  best_val = 0.0;
+
+  // Pre-compute standardized Y for node samples (avoid repeated computation)
+  // y_std[jj][k] = standardized Y for sample samples[k], Y-candidate jj
+  // We need to map sample_id -> position for fast lookup during scanning
+  std::vector<double> y_std_flat(n_y_try * n_node);
+  for (int jj = 0; jj < n_y_try; jj++) {
+    int j = y_candidates[jj];
+    for (int k = 0; k < n_node; k++) {
+      y_std_flat[jj * n_node + k] =
+        (Y(samples[k], j) - y_means[jj]) / y_sds[jj];
+    }
+  }
+  // Build sample_id -> local index map for O(1) lookup
+  std::vector<int> sample_pos(n_total, -1);
+  for (int k = 0; k < n_node; k++) sample_pos[samples[k]] = k;
+
+  for (int xi = 0; xi < n_x_try; xi++) {
+    int xvar = x_candidates[xi];
+    const std::vector<int>& order = sort_order[xvar];
+
+    // Scan pre-sorted indices; skip samples not in this node
+    std::vector<double> sum_L(n_y_try, 0.0);
+    int nL = 0;
+    double prev_x = 0.0;
+    bool first = true;
+
+    for (int s = 0; s < n_total; s++) {
+      int si = order[s];
+      if (!in_node[si]) continue;
+
+      double x_val = X(si, xvar);
+      int local_k = sample_pos[si];
+
+      if (!first && nL >= nodesize_min && (n_node - nL) >= nodesize_min
+          && x_val != prev_x) {
+        // Evaluate split between prev_x and x_val
+        int nR = n_node - nL;
+        double score = 0.0;
+        for (int jj = 0; jj < n_y_try; jj++) {
+          double sL = sum_L[jj];
+          score += (sL * sL) / nL + (sL * sL) / nR;
+        }
+        score /= n_y_try;
+
+        if (score > best_score) {
+          best_score = score;
+          best_y_stats.assign(qy, 0.0);
+          for (int jj = 0; jj < n_y_try; jj++) {
+            double sL = sum_L[jj];
+            best_y_stats[y_candidates[jj]] = (sL * sL) / nL + (sL * sL) / nR;
+          }
+          best_var = xvar;
+          best_val = (prev_x + x_val) / 2.0;
+        }
+      }
+
+      // Add this sample to left child
+      nL++;
+      for (int jj = 0; jj < n_y_try; jj++) {
+        sum_L[jj] += y_std_flat[jj * n_node + local_k];
+      }
+      prev_x = x_val;
+      first = false;
+    }
+  }
+
+  // Clean up sample_pos
+  for (int k = 0; k < n_node; k++) sample_pos[samples[k]] = -1;
+
+  if (best_var < 0) return false;
+
+  // Partition samples
+  left_samples.clear();
+  right_samples.clear();
+  left_samples.reserve(n_node);
+  right_samples.reserve(n_node);
+  for (int k = 0; k < n_node; k++) {
+    if (X(samples[k], best_var) <= best_val) {
+      left_samples.push_back(samples[k]);
+    } else {
+      right_samples.push_back(samples[k]);
+    }
+  }
+
+  return !left_samples.empty() && !right_samples.empty();
+}
+
+// Build tree using pre-sorted indices (fast path)
+template <typename XMat, typename YMat>
+static std::vector<Node> build_tree_fast(
+    const XMat& X, const YMat& Y,
+    const std::vector<int>& bag_samples,
+    const std::vector<std::vector<int>>& sort_order,
+    int n_total,
+    int mtry, int ytry, int nodesize_min, int max_depth,
+    std::mt19937& rng)
+{
+  std::vector<Node> nodes;
+  nodes.reserve(256);
+
+  // in_node flags (reused across nodes)
+  std::vector<bool> in_node(n_total, false);
+
+  Node root;
+  root.id = 0;
+  root.left = -1;
+  root.right = -1;
+  root.split_var = -1;
+  root.split_val = 0.0;
+  root.depth = 0;
+  root.samples = bag_samples;
+  nodes.push_back(root);
+
+  std::vector<int> to_split = {0};
+
+  while (!to_split.empty()) {
+    std::vector<int> next_split;
+
+    for (int ni : to_split) {
+      Node& node = nodes[ni];
+
+      if ((int)node.samples.size() < 2 * nodesize_min) continue;
+      if (max_depth > 0 && node.depth >= max_depth) continue;
+
+      // Set in_node flags for current node
+      for (int si : node.samples) in_node[si] = true;
+
+      int bv;
+      double bval, bscore;
+      std::vector<int> lsamp, rsamp;
+      std::vector<double> by_stats;
+
+      bool found = find_best_split_fast(
+        X, Y, node.samples, in_node, sort_order,
+        mtry, ytry, nodesize_min, rng,
+        bv, bval, bscore, lsamp, rsamp, by_stats);
+
+      // Clear in_node flags
+      for (int si : node.samples) in_node[si] = false;
+
+      if (!found) continue;
+
+      node.split_var = bv;
+      node.split_val = bval;
+      node.imd_y_stats = std::move(by_stats);
+      node.imd_x_score = bscore;
+
+      int left_id = (int)nodes.size();
+      Node left_node;
+      left_node.id = left_id;
+      left_node.left = -1;
+      left_node.right = -1;
+      left_node.split_var = -1;
+      left_node.split_val = 0.0;
+      left_node.depth = node.depth + 1;
+      left_node.samples = std::move(lsamp);
+      nodes.push_back(left_node);
+
+      int right_id = (int)nodes.size();
+      Node right_node;
+      right_node.id = right_id;
+      right_node.left = -1;
+      right_node.right = -1;
+      right_node.split_var = -1;
+      right_node.split_val = 0.0;
+      right_node.depth = node.depth + 1;
+      right_node.samples = std::move(rsamp);
+      nodes.push_back(right_node);
+
+      nodes[ni].left = left_id;
+      nodes[ni].right = right_id;
+
+      next_split.push_back(left_id);
+      next_split.push_back(right_id);
+    }
+
+    to_split = std::move(next_split);
+  }
+
+  return nodes;
+}
+
+// ──────────────── Original split (kept for reference) ────────────────
 
 // Find the best split for a node
 // X: n x px, Y: n x qy (full matrices, use sample indices)
@@ -573,6 +829,9 @@ List fit_mv_forest_cpp(NumericMatrix X, NumericMatrix Y,
   };
   std::vector<TreeResult> tree_results(ntree);
 
+  // Pre-sort all X columns once (shared across trees, read-only)
+  auto sort_order = presort_columns(Xv, n, px);
+
   // Parallel tree building with thread-local accumulation buffers.
   #ifdef _OPENMP
   #pragma omp parallel
@@ -618,9 +877,10 @@ List fit_mv_forest_cpp(NumericMatrix X, NumericMatrix Y,
     tree_results[t].inbag = inbag_freq;
     std::sort(bag.begin(), bag.end());
 
-    // Build tree
-    tree_results[t].nodes = build_tree(Xv, Yv, bag, mtry, ytry,
-                                       nodesize_min, max_depth, rng_t);
+    // Build tree using pre-sorted indices (no per-node re-sorting)
+    tree_results[t].nodes = build_tree_fast(Xv, Yv, bag, sort_order, n,
+                                             mtry, ytry, nodesize_min,
+                                             max_depth, rng_t);
 
     // Release sample vectors from all nodes — they are only needed during
     // tree construction; leaf membership is obtained via predict_leaf.
