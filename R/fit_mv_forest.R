@@ -38,7 +38,7 @@ resolve_param <- function(value, p, default, name = "param") {
 #'   classification). In formulas, `p` is the number of predictor columns.
 #' @param ytry Number of candidate Y variables per split. Accepts an integer,
 #'   a formula string (`"sqrt(p)"`, `"p/3"`), or `NULL` for the default
-#'   (`min(qy, ceiling(px/3))`). In formulas, `p` is the number of Y columns.
+#'   (`ceiling(qy/3)`). In formulas, `p` is the number of Y columns.
 #' @param nodesize Minimum terminal node size. Default: 5.
 #' @param max_depth Maximum tree depth (0 = unlimited). Default: 0.
 #' @param seed Random seed.
@@ -171,7 +171,8 @@ fit_mv_forest <- function(X, Y, ntree = 500L,
   px <- ncol(X_mat)
   qy <- ncol(Y_mat)
   mtry <- resolve_param(mtry, p = px, default = ceiling(px / 3), name = "mtry")
-  ytry <- resolve_param(ytry, p = qy, default = min(qy, ceiling(px / 3)), name = "ytry")
+  # Default ytry = ceiling(qy/3), analogous to mtry's ceiling(px/3) heuristic.
+  ytry <- resolve_param(ytry, p = qy, default = ceiling(qy / 3), name = "ytry")
 
   # Map samptype string to integer: 0 = swor, 1 = swr
   samptype <- match.arg(samptype)
