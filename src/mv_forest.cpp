@@ -317,7 +317,7 @@ List fit_mv_forest_cpp(NumericMatrix X, NumericMatrix Y,
 
   // Defaults
   if (mtry <= 0) mtry = std::max(1, (int)std::sqrt((double)px));
-  if (ytry <= 0) ytry = std::max(1, (int)std::sqrt((double)qy));  // default: sqrt(qy)
+  if (ytry <= 0) ytry = std::max(1, qy / 2);  // default: p_a/2
   if (max_depth <= 0) max_depth = 150;
 
   #ifdef _OPENMP

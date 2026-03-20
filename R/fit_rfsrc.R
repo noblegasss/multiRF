@@ -149,8 +149,8 @@ fit_rfsrc <-  function(X, Y = NULL, type = "regression", nodedepth = NULL,
 fit_multi_rfsrc <- function(dat.list, connect_list = NULL, var.wt = NULL, yprob = 1, ytry = NULL, seed = -10, ...){
 
   if(is.null(connect_list)){
-
-    mod_l <- full_connect(dat.list, seed = seed, ...)
+    ytry_use <- if (!is.null(ytry)) as.integer(ytry) else NULL
+    mod_l <- full_connect(dat.list, ytry = ytry_use, seed = seed, ...)
 
   } else {
 
