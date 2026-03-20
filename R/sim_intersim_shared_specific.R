@@ -247,6 +247,9 @@ simulate_intersim_shared_specific <- function(
     factor(tb[[cand[1]]])
   }
 
+  # Force exact sum-to-1 to satisfy InterSIM's strict check
+  Z_prop <- Z_prop / sum(Z_prop)
+
   sim <- InterSIM::InterSIM(
     n.sample = n,
     cluster.sample.prop = Z_prop,

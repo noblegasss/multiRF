@@ -8,8 +8,8 @@
 #' @param X Data frame or matrix of predictor features (n x px).
 #' @param Y Data frame or matrix of response features (n x qy).
 #' @param ntree Number of trees.
-#' @param mtry Number of candidate X variables per split. Default: sqrt(px).
-#' @param ytry Number of candidate Y variables per split. Default: qy/3.
+#' @param mtry Number of candidate X variables per split. Default `NULL` = `floor(sqrt(px))`.
+#' @param ytry Number of candidate Y variables per split. Default `NULL` = `floor(sqrt(qy))`.
 #' @param nodesize Minimum terminal node size. Default: 5.
 #' @param max_depth Maximum tree depth (0 = unlimited). Default: 0.
 #' @param seed Random seed.
@@ -33,14 +33,14 @@
 #'
 #' @param X Data frame or matrix of features (n x p).
 #' @param ntree Number of trees.
-#' @param ytry Number of candidate pseudo-Y columns per split.
+#' @param ytry Number of candidate pseudo-Y columns per split. Default `NULL` = 15.
 #' @param nodesize Minimum terminal node size.
 #' @param max_depth Maximum tree depth (0 = unlimited).
 #' @param seed Random seed.
 #' @return A list with `forest.wt`, `proximity`, `membership`, `xvar`,
 #'   `xvar.names`, `ntree`, and `engine = "multiRF"`.
 #' @keywords internal
-fit_mv_forest_unsup <- function(X, ntree = 500L, ytry = 10L,
+fit_mv_forest_unsup <- function(X, ntree = 500L, ytry = NULL,
                                  nodesize = 5L, max_depth = 0L, seed = -1L,
                                  nthread = getOption("multiRF.nthread", 0L)) {
 
@@ -49,11 +49,14 @@ fit_mv_forest_unsup <- function(X, ntree = 500L, ytry = 10L,
   all_names <- colnames(X)
   X_mat <- as.matrix(X)
 
+  # Default ytry = 15 for unsupervised (n_y varies per tree)
+  ytry_int <- if (is.null(ytry)) 15L else as.integer(ytry)
+
   # All-C++ unsupervised forest (random column splits done in C++)
   res <- fit_mv_forest_unsup_cpp(
     data = X_mat,
     ntree = as.integer(ntree),
-    ytry = as.integer(ytry),
+    ytry = ytry_int,
     nodesize_min = as.integer(nodesize),
     max_depth = as.integer(max_depth),
     seed = as.integer(seed),
@@ -106,7 +109,8 @@ fit_mv_forest_unsup <- function(X, ntree = 500L, ytry = 10L,
   out
 }
 
-fit_mv_forest <- function(X, Y, ntree = 500L, mtry = 0L, ytry = 0L,
+fit_mv_forest <- function(X, Y, ntree = 500L,
+                           mtry = NULL, ytry = NULL,
                            nodesize = 5L, max_depth = 0L, seed = -1L,
                            nthread = getOption("multiRF.nthread", 0L)) {
 
@@ -117,6 +121,10 @@ fit_mv_forest <- function(X, Y, ntree = 500L, mtry = 0L, ytry = 0L,
 
   X_mat <- as.matrix(X)
   Y_mat <- as.matrix(Y)
+
+  # Defaults: sqrt(px) for mtry, sqrt(qy) for ytry
+  if (is.null(mtry)) mtry <- max(1L, floor(sqrt(ncol(X_mat))))
+  if (is.null(ytry)) ytry <- max(1L, floor(sqrt(ncol(Y_mat))))
 
   # C++ engine
   res <- fit_mv_forest_cpp(
@@ -229,7 +237,7 @@ fit_mv_forest <- function(X, Y, ntree = 500L, mtry = 0L, ytry = 0L,
 #' then reconstructs training-set class probabilities and labels.
 #'
 #' @keywords internal
-fit_class_forest <- function(X, Y, ntree = 500L, mtry = 0L,
+fit_class_forest <- function(X, Y, ntree = 500L, mtry = NULL,
                              nodesize = 5L, max_depth = 0L, seed = -1L,
                              nthread = getOption("multiRF.nthread", 0L)) {
 

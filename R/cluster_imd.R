@@ -6,7 +6,7 @@
 #' @param connect_list Optional global connection list used by all clusters.
 #' @param min_cluster_size Minimum sample size required to run a cluster-specific IMD.
 #' @param ntree Deprecated compatibility argument. Ignored in no-refit mode.
-#' @param yprob `yprob` used for per-cluster IMD. If `NULL`, reuses object setting.
+#' @param ytry `ytry` used for per-cluster IMD. If `NULL`, reuses object setting.
 #' @param parallel Logical; whether IMD computation inside each cluster is parallelized.
 #' @param imd_normalized_weights Logical; passed to `get_multi_weights()` as `normalized`.
 #' @param fit_args Deprecated compatibility argument. Ignored in no-refit mode.
@@ -27,7 +27,7 @@ cluster_imd <- function(x,
                         connect_list = NULL,
                         min_cluster_size = 20L,
                         ntree = NULL,
-                        yprob = NULL,
+                        ytry = NULL,
                         parallel = TRUE,
                         imd_normalized_weights = TRUE,
                         run_vs = FALSE,
@@ -48,19 +48,19 @@ cluster_imd <- function(x,
   if (!is.list(imd_args)) stop("`imd_args` must be a named list.")
   if (!is.list(vs_args)) stop("`vs_args` must be a named list.")
 
-  base <- list(mod_list = NULL, connect_list = NULL, ntree = NULL, yprob = NULL, dat = dat.list)
+  base <- list(mod_list = NULL, connect_list = NULL, ntree = NULL, ytry = NULL, dat = dat.list)
   if (inherits(x, "mrf3_fit")) {
     base$mod_list <- x$models
     base$connect_list <- x$connection
     base$ntree <- x$config$ntree
-    base$yprob <- x$config$yprob
+    base$ytry <- x$config$ytry
     if (is.null(base$dat)) base$dat <- x$data
     if (is.null(cluster)) cluster <- x$clusters
   } else if (inherits(x, "mrf3")) {
     base$mod_list <- x$mod
     base$connect_list <- x$connection
     base$ntree <- x$ntree
-    base$yprob <- x$yprob
+    base$ytry <- x$ytry
     if (is.null(base$dat)) base$dat <- x$dat.list
     if (is.null(cluster)) cluster <- x$cl
   } else {
@@ -127,7 +127,7 @@ cluster_imd <- function(x,
   conn_names <- vapply(conn_global, make_conn_name, character(1))
   mod_template <- base$mod_list[conn_names]
   use_refit <- any(vapply(mod_template, function(m) !is.null(m$sub_mrf_info), logical(1)))
-  yprob_use <- if (is.null(yprob)) base$yprob else yprob
+  ytry_use <- if (is.null(ytry)) base$ytry else ytry
 
   subset_model_for_cluster <- function(mod, conn, dat_sub, idx) {
     ms <- mod
@@ -179,7 +179,7 @@ cluster_imd <- function(x,
           dat.list = dat_sub,
           connect_list = conn_global,
           ntree = if (is.null(base$ntree)) 200L else base$ntree,
-          yprob = yprob_use,
+          ytry = ytry_use,
           seed = seed + i - 1L
         )
       } else {
@@ -201,7 +201,7 @@ cluster_imd <- function(x,
       list(
         mod_list = mod_sub,
         dat.list = dat_sub,
-        yprob = yprob_use,
+        ytry = ytry_use,
         parallel = parallel,
         normalized = imd_normalized_weights,
         seed = seed + i - 1L
@@ -223,7 +223,7 @@ cluster_imd <- function(x,
         net = imd_out$net,
         dat.list = dat_sub,
         ntree = if (is.null(base$ntree)) NA_integer_ else base$ntree,
-        yprob = yprob_use
+        ytry = ytry_use
       ),
       class = "mrf3"
     )
@@ -248,7 +248,7 @@ cluster_imd <- function(x,
     params = list(
       connect_list = conn_global,
       min_cluster_size = min_cluster_size,
-      yprob = yprob_use,
+      ytry = ytry_use,
       parallel = parallel,
       run_vs = run_vs
     )

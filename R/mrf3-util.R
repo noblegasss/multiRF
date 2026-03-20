@@ -204,7 +204,7 @@ get_leaf_ds <- function(mod, tree.membership, net){
 
 # Get response outcome splitting scores for splits in a tree
 get_Y_imp <- function(net, tree.membership, dat,
-                      robust = FALSE, w = NULL, yprob = 1, seed = -5,
+                      robust = FALSE, w = NULL, ytry = 1, seed = -5,
                       top = 5){
 
   node_id <- unique(net$from)
@@ -251,7 +251,7 @@ get_Y_imp <- function(net, tree.membership, dat,
 }
 
 # Get importance for leaves in a tree
-get_tree_imp <- function(mod, dat = NULL, robust = FALSE, tree.membership, net, calc = "Both", M = NULL, w = NULL, yprob = 1, weighted = FALSE, seed = -5){
+get_tree_imp <- function(mod, dat = NULL, robust = FALSE, tree.membership, net, calc = "Both", M = NULL, w = NULL, ytry = 1, weighted = FALSE, seed = -5){
 
   if(is.null(dat)){
     dat <- mod$xvar
@@ -284,10 +284,10 @@ get_tree_imp <- function(mod, dat = NULL, robust = FALSE, tree.membership, net, 
 
   if(calc %in% c("Both", "Y")){
 
-    impY_ls <- get_Y_imp(net = match_old_net, tree.membership = tree.membership, robust = robust, dat = datY, yprob = yprob, seed = seed)
+    impY_ls <- get_Y_imp(net = match_old_net, tree.membership = tree.membership, robust = robust, dat = datY, ytry = ytry, seed = seed)
     impY <- impY_ls$var_imp
     updated_net$Y_id[unique(match(match_old_net$from, updated_net$from))] <- names(impY)
-    scores_impY <- updated_net$inv_d[match(unique(match_old_net$from), updated_net$from)] 
+    scores_impY <- updated_net$inv_d[match(unique(match_old_net$from), updated_net$from)]
     if(weighted) {
       scores_impY <- scores_impY * updated_net$edge[match(unique(match_old_net$from), updated_net$from)]
     }
@@ -302,12 +302,12 @@ get_tree_imp <- function(mod, dat = NULL, robust = FALSE, tree.membership, net, 
 
     imp_var <- top_node_info[match(use_sample, top_node_info$from),"from"]
     if(robust) {
-      impX_ls <- get_Y_imp(net = match_old_net, tree.membership = tree.membership, robust = robust, dat = dat, yprob = yprob, seed = seed)
+      impX_ls <- get_Y_imp(net = match_old_net, tree.membership = tree.membership, robust = robust, dat = dat, ytry = ytry, seed = seed)
       impX <- impX_ls$var_imp
     }
-   
+
     sub_net <- old_net_corr[match(unique(match_old_net$from), old_net_corr$from),]
-    scores_imp <- (sub_net$inv_d) 
+    scores_imp <- (sub_net$inv_d)
     if(weighted) {
       scores_imp <- scores_imp * old_net_corr$edge
     }
@@ -354,7 +354,7 @@ get_tree_imp <- function(mod, dat = NULL, robust = FALSE, tree.membership, net, 
 }
 
 # Update tree importance from bottom to top
-update_iter_imp <- function(mod, tree.id, calc = "Both", robust = FALSE, w = NULL, yprob = 1, weighted = FALSE, seed = -5,
+update_iter_imp <- function(mod, tree.id, calc = "Both", robust = FALSE, w = NULL, ytry = 1, weighted = FALSE, seed = -5,
                             tree_dfs  = NULL) {
 
   # Get the tree structure for the specified tree.id
@@ -422,7 +422,7 @@ update_iter_imp <- function(mod, tree.id, calc = "Both", robust = FALSE, w = NUL
       calc = calc,
       M = mat,
       w = w,
-      yprob = yprob,
+      ytry = ytry,
       weighted = weighted,
       seed = seed
     )
@@ -546,12 +546,12 @@ add_lambda <- function(imp_ls, net, x_freq, lambda){
 #' @param use_depth Logical; whether to aggregate non-zero depths instead of simple mean.
 #' @param normalized Logical; whether to l2-normalize returned importance.
 #' @param w Optional case weights.
-#' @param yprob Response sampling proportion used in node-level updates.
+#' @param ytry Response sampling proportion used in node-level updates.
 #' @param cores Number of CPU cores used when `parallel = TRUE`.
 #' @param seed Random seed passed to stochastic components.
 #' @rdname get_imp_forest
 get_imp_forest <- function(mod, parallel = FALSE, robust = FALSE, calc = "Both", weighted = FALSE, use_depth = FALSE, normalized = FALSE,
-                           w = NULL, yprob = 1, cores = NULL, seed = -5){
+                           w = NULL, ytry = 1, cores = NULL, seed = -5){
 
   nt <- mod$ntree
 
@@ -582,7 +582,7 @@ get_imp_forest <- function(mod, parallel = FALSE, robust = FALSE, calc = "Both",
                                          tree.id = t,
                                          calc = cc,
                                          robust = robust,
-                                         yprob = yprob,
+                                         ytry = ytry,
                                          w = w,
                                          weighted = weighted,
                                          seed = seed,
@@ -683,14 +683,14 @@ get_iv <- function(var_name, imp){
 #' @param parallel Logical; whether to parallelize across models.
 #' @param normalized Logical; whether to normalize the merged weights.
 #' @param calc Which importance side to compute: `"X"`, `"Y"`, or `"Both"`.
-#' @param yprob Response sampling proportion used in node-level updates.
+#' @param ytry Response sampling proportion used in node-level updates.
 #' @param w Optional case weights.
 #' @param cores Number of CPU cores used when `parallel = TRUE`.
 #' @param seed Random seed passed to stochastic components.
 #' @param ... Additional arguments for downstream helper functions.
 #' @rdname get_multi_weights
 get_multi_weights <- function(mod_list, dat.list, y = NULL, weighted = FALSE,  use_depth = FALSE, robust = FALSE,
-                              parallel = FALSE, normalized = TRUE, calc = "Both", yprob = 1,
+                              parallel = FALSE, normalized = TRUE, calc = "Both", ytry = 1,
                               w = NULL, cores = NULL, seed = -5, ...){
 
   mod_names <- names(mod_list)
@@ -749,7 +749,7 @@ get_multi_weights <- function(mod_list, dat.list, y = NULL, weighted = FALSE,  u
   # Slow path: post-hoc tree traversal (used when models come from rfsrc or
   # native engine without pre-computed IMD)
   results <- get_results(mod_list = mod_list, parallel = parallel, robust = robust, weighted = weighted, normalized = FALSE, use_depth = use_depth,
-                         calc = calc, w = w, cores = cores, yprob = yprob, seed = seed)
+                         calc = calc, w = w, cores = cores, ytry = ytry, seed = seed)
 
   net <- purrr::map(results, "net")
   weight_l <- purrr::map(results, "wl")
@@ -913,7 +913,7 @@ cal_freq <- function(mod, net){
 
 get_results <- function(mod_list, parallel,
                         normalized = FALSE, weighted = FALSE, robust = FALSE,
-                        use_depth = FALSE, calc, w = NULL, yprob = 1, cores = NULL, seed = -5){
+                        use_depth = FALSE, calc, w = NULL, ytry = 1, cores = NULL, seed = -5){
 
   mod_names <- names(mod_list)
   plyr::llply(
@@ -927,7 +927,7 @@ get_results <- function(mod_list, parallel,
       } else {w0 <- NULL}
       results <- get_imp_forest(mod, parallel = parallel, robust = robust, normalized = normalized,
                                 weighted = weighted, calc = calc,  w = w0,
-                                yprob = yprob, cores = cores, use_depth = use_depth, seed = seed)
+                                ytry = ytry, cores = cores, use_depth = use_depth, seed = seed)
 
       wl <- results$imp_ls
       wl_init <- results$imp_ls_init

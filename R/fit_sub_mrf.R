@@ -64,8 +64,8 @@ compute_oob_fw <- function(mod) {
 #'   small, as the asymmetric case leads to poor convergence (each
 #'   sub-model overfits to its response subset).
 #' @param ntree_per_sub  Number of trees per sub-MRF (default 50).
-#' @param yprob  Fraction of (sub-sampled) response columns used as `ytry`.
-#'   Default 0.5.  Lower values increase tree diversity.
+#' @param ytry  Number of candidate Y variables per split. Default `0L` means
+#'   the C++ engine uses `sqrt(qy)`.  A positive integer overrides this.
 #' @param min_response  Minimum number of response columns per sub-MRF.
 #' @param min_predictor  Minimum number of predictor columns per sub-MRF.
 #' @param enhanced  Logical; if `TRUE`, compute soft enhanced proximity
@@ -110,7 +110,8 @@ fit_sub_mrf <- function(X, Y,
                         frac_response = 0.2,
                         frac_predictor = 0.2,
                         ntree_per_sub = 25L,
-                        yprob = 0.5,
+                        mtry = NULL,
+                        ytry = NULL,
                         min_response = 20L,
                         min_predictor = 30L,
                         enhanced = FALSE,
@@ -166,16 +167,14 @@ fit_sub_mrf <- function(X, Y,
     x_idx <- sort(sample.int(pX, size = n_pred))
     X_sub <- X[, x_idx, drop = FALSE]
 
-    ytry_sub <- max(1L, ceiling(ncol(Y_sub) * yprob))
-    if (ytry_sub >= ncol(Y_sub)) ytry_sub <- NULL
-
     mod <- fit_rfsrc(
       X = X_sub,
       Y = Y_sub,
       ntree = ntree_per_sub,
       forest.wt = "all",
       proximity = "all",
-      ytry = ytry_sub,
+      mtry = mtry,
+      ytry = ytry,
       seed = seed + b,
       ...
     )
@@ -214,7 +213,7 @@ fit_sub_mrf <- function(X, Y,
       imd_defaults <- list(
         mod = mod, parallel = FALSE, robust = FALSE,
         calc = "Both", normalized = FALSE, use_depth = FALSE,
-        weighted = FALSE, yprob = 1, seed = seed + b
+        weighted = FALSE, ytry = NULL, seed = seed + b
       )
       imd_call <- utils::modifyList(imd_defaults, imd_args)
       imd_out <- tryCatch(
@@ -350,7 +349,7 @@ fit_sub_mrf <- function(X, Y,
       ntree_per_sub = ntree_per_sub,
       frac_response  = frac_response,
       frac_predictor = frac_predictor,
-      yprob = yprob,
+      ytry = ytry,
       col_coverage_response  = cov_resp,
       col_coverage_predictor = cov_pred,
       elapsed = elapsed
@@ -372,7 +371,7 @@ fit_sub_mrf <- function(X, Y,
 #' @param connect_list  A list of connections, each a character vector of
 #'   length 2: `c(response_name, predictor_name)`.  Same format as used
 #'   by `fit_multi_rfsrc()`.
-#' @param yprob  Fraction of (sub-sampled) response columns used as `ytry`.
+#' @param ytry  Number of candidate Y variables per split (0 = sqrt(qy) default).
 #' @param min_response_for_sub Minimum response-block size below which all
 #'   response features are used instead of sub-sampling.
 #' @param min_predictor_for_sub Minimum predictor-block size below which all
@@ -395,7 +394,8 @@ fit_sub_multi_rfsrc <- function(dat.list,
                                 frac_response = 0.2,
                                 frac_predictor = 0.2,
                                 ntree_per_sub = 25L,
-                                yprob = 0.5,
+                                mtry = NULL,
+                                ytry = NULL,
                                 min_response = 20L,
                                 min_predictor = 30L,
                                 min_response_for_sub = 500L,
@@ -452,9 +452,7 @@ fit_sub_multi_rfsrc <- function(dat.list,
         if (verbose) message(sprintf(
           "  resp (%d) and pred (%d) both small -> using full forest", ncol(Y), ncol(X)
         ))
-        ytry <- min(ceiling(ncol(Y) * yprob), 5000L)
-        if (ytry == ncol(Y)) ytry <- NULL
-        mod <- fit_rfsrc(X, Y, ytry = ytry, ntree = ntree_full,
+        mod <- fit_rfsrc(X, Y, mtry = mtry, ytry = ytry, ntree = ntree_full,
                          seed = seed, forest.wt = "all", ...)
         return(mod)
       }
@@ -472,7 +470,8 @@ fit_sub_multi_rfsrc <- function(dat.list,
         frac_response = frac_resp_use,
         frac_predictor = frac_pred_use,
         ntree_per_sub = ntree_per_sub,
-        yprob = yprob,
+        mtry = mtry,
+        ytry = ytry,
         min_response = min_response,
         min_predictor = min_predictor,
         enhanced = enhanced,

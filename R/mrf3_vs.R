@@ -66,7 +66,7 @@ mrf3_vs <- function(mod,
       weights = wf_weights,
       weights_ls = wf_weights_ls,
       connection = wf$connection,
-      yprob = wf$config$yprob,
+      ytry = wf$config$ytry,
       ntree = wf$config$ntree,
       type = wf$type,
       oob_err = wf$oob_err,
@@ -151,16 +151,16 @@ mrf3_vs <- function(mod,
     thres <- choose_thres2(
       weights,
       connection = connect_list,
-      new_dat = new_dat, 
-      yprob = mod$yprob, 
-      ntree = mod$ntree, 
+      new_dat = new_dat,
+      ytry = mod$ytry,
+      ntree = mod$ntree,
       type = mod$type,
-      oob_init = mod$oob_err, 
-      k = k, 
+      oob_init = mod$oob_err,
+      k = k,
       select = select,
       tol = tol,
       ...)
-    
+
   }
 
   
@@ -243,12 +243,12 @@ mrf3_vs <- function(mod,
     m <- NULL
   } 
   if(re_fit) {
-    refit <- fit_multi_rfsrc(new_dat2, connect_list = connect_list, ntree = ntree, 
-                             type = mod$type, var.wt = m, yprob = mod$yprob, ...)
-    
+    refit <- fit_multi_rfsrc(new_dat2, connect_list = connect_list, ntree = ntree,
+                             type = mod$type, var.wt = m, ytry = mod$ytry, ...)
+
     oob_err <- purrr::map(refit, ~get_r_sq(.))
     oob_err <- Reduce("+", oob_err)
-    
+
     mod$oob_err <- oob_err
     mod$mod <- refit
   }
@@ -263,7 +263,7 @@ mrf3_vs <- function(mod,
   
 }
 
-choose_thres2 <- function(weights, connection, new_dat, yprob, ntree, type, oob_init, k = 3, tol = 0.01, select = "ALL", ...) {
+choose_thres2 <- function(weights, connection, new_dat, ytry, ntree, type, oob_init, k = 3, tol = 0.01, select = "ALL", ...) {
   
   num <- seq(.8,3.1,by = 0.1)
   oob <- c()
@@ -312,11 +312,11 @@ choose_thres2 <- function(weights, connection, new_dat, yprob, ntree, type, oob_
 
     oob_err0 <- plyr::laply(1:k,
                             .fun = function(k) {
-                              refit <- fit_multi_rfsrc(new_dat2, connect_list = connection, 
-                                                       ntree = ntree, type = type, yprob = yprob, 
+                              refit <- fit_multi_rfsrc(new_dat2, connect_list = connection,
+                                                       ntree = ntree, type = type, ytry = ytry,
                                                        var.wt = NULL,
                                                        forest.wt = "oob")
-                              
+
                               oob_err <- purrr::map(refit, ~get_r_sq(.))
                               Reduce("+", oob_err)/length(new_dat2)
                             })

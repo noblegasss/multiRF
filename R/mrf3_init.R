@@ -3,7 +3,7 @@
 #' @param dat.list A list containing multi-omics datasets with samples in rows and features in columns.
 #' @param ntree Number of trees for fitting MRF model. Default is 300.
 #' @param scale Whether to z-standardize each feature. Default is TRUE.
-#' @param yprob Probability of response features being selected in each node split. Default is 0.5.
+#' @param ytry Probability of response features being selected in each node split. Default is 0.5.
 #' @param connect_list Optional pre-defined connection list. If `NULL`, the
 #' function fits all directed pairwise models first, then uses `find_connection()`
 #' to select one direction per omics pair.
@@ -24,7 +24,7 @@
 #'   `n_sub` (number of replicates, default 15), `frac_response` (default 0.2),
 #'   `frac_predictor` (default 0.2), `ntree_per_sub` (default 25),
 #'   `min_response_for_sub` (default 500; blocks smaller than this use all features),
-#'   `min_predictor_for_sub` (default 500), `yprob` (default 0.5).
+#'   `min_predictor_for_sub` (default 500), `ytry` (default 0.5).
 #' @param seed Random seed.
 #' @param ... Additional arguments passed to forest fitting helpers.
 #'
@@ -51,7 +51,7 @@ mrf3_init <- function(dat.list,
                  # Number of trees
                  ntree = 300,
                  scale = TRUE,
-                 yprob = .5,
+                 ytry = NULL,
                  # Find connections
                  connect_list = NULL,
                  filter_mode = c("auto", "none", "manual"),
@@ -63,6 +63,7 @@ mrf3_init <- function(dat.list,
                  # Sub-MRF ensemble
                  sub_mrf = FALSE,
                  sub_mrf_args = list(),
+                 verbose = TRUE,
                  seed = 529,
                  ...){
 
@@ -91,7 +92,7 @@ mrf3_init <- function(dat.list,
   filter_mode <- match.arg(filter_mode)
   filter_method <- match.arg(filter_method)
 
-  message("Filtering data..")
+  if (verbose) message("Filtering data..")
   prep_info <- filter_omics(
     dat.list = dat.list,
     filter_mode = filter_mode,
@@ -120,7 +121,7 @@ mrf3_init <- function(dat.list,
     new_dat <- dat_fit
   }
 
-  message("Fitting models..")
+  if (verbose) message("Fitting models..")
   connection_score <- NULL
   connection_top_v_used <- NULL
 
@@ -138,7 +139,7 @@ mrf3_init <- function(dat.list,
       enhanced = FALSE,
       compute_imd = FALSE,
       imd_args = list(),
-      yprob = yprob,
+      ytry = ytry,
       seed = seed,
       verbose = TRUE
     )
@@ -155,7 +156,7 @@ mrf3_init <- function(dat.list,
       }
 
       ## Fit ALL pairwise connections with sub-MRF
-      message("Fitting all pairwise connections (sub-MRF)...")
+      if (verbose) message("  Fitting all pairwise (sub-MRF)..")
       sub_args <- sub_params
       sub_args$dat.list <- new_dat
       sub_args$connect_list <- all_connections
@@ -163,7 +164,7 @@ mrf3_init <- function(dat.list,
 
       ## Select best directions using OOB forest.wt for quality scores
       ## find_connection reads $forest.wt, so temporarily swap in the OOB version
-      message("Finding connections from fitted forests (using OOB forest.wt)..")
+      if (verbose) message("  Finding connections (OOB)..")
       mod_all_oob <- lapply(mod_all, function(m) {
         m$forest.wt <- m$forest.wt.oob
         m
@@ -180,7 +181,7 @@ mrf3_init <- function(dat.list,
 
     } else {
       ## connect_list provided — fit selected connections only
-      message("Fitting selected connections (sub-MRF)...")
+      if (verbose) message("  Fitting selected connections (sub-MRF)..")
       sub_args <- sub_params
       sub_args$dat.list <- new_dat
       sub_args$connect_list <- connect_list
@@ -198,13 +199,13 @@ mrf3_init <- function(dat.list,
         connect_list = NULL,
         ntree = ntree,
         type = type,
-        yprob = yprob,
+        ytry = ytry,
         seed = seed,
         forest.wt = "all",
         ...
       )
 
-      message("Finding connections from fitted forests..")
+      if (verbose) message("  Finding connections..")
       conn_out <- find_connection(mod_all, return_score = TRUE, drop_bottom_q = 0.2)
       connect_list <- conn_out$connect_list
       connection_score <- conn_out$score
@@ -220,7 +221,7 @@ mrf3_init <- function(dat.list,
         connect_list = connect_list,
         ntree = ntree,
         type = type,
-        yprob = yprob,
+        ytry = ytry,
         seed = seed,
         forest.wt = "all",
         ...
@@ -240,7 +241,7 @@ mrf3_init <- function(dat.list,
     connection_score = connection_score,
     connection_top_v_used = connection_top_v_used,
     ntree = ntree,
-    yprob = yprob,
+    ytry = ytry,
     sub_mrf = sub_mrf,
     dat.list = dat_fit,
     filter_summary = prep_info$filter_summary
@@ -248,7 +249,7 @@ mrf3_init <- function(dat.list,
 
   attr(out, "class") <- "mrf3"
 
-  message("Done!")
+  if (verbose) message("Done!")
 
   return(out)
 }

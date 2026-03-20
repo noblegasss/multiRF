@@ -44,6 +44,10 @@ run_cluster_pipeline <- function(recon,
     clustering_args
   )
 
+  # Remove forest-fitting params that should never reach clustering functions
+  args$mtry <- NULL
+  args$ytry <- NULL
+
   if (identical(cluster_method, "similarity")) {
     if (is.null(args$shared_method)) args$shared_method <- "PAM"
     if (is.null(args$specific_method)) args$specific_method <- "PAM"
@@ -68,7 +72,8 @@ run_cluster_pipeline <- function(recon,
     "shared_mode", "shared_dat_use", "shared_k", "shared_method", "shared_similarity_type",
     "specific_k", "specific_method", "specific_prox_method_cl", "specific_similarity_type",
     "tune_method", "gap_w", "gamma", "alpha_init", "ao_max_iter", "ao_tol",
-    "knn_q", "hollow", "ao_symm", "ao_verbose"
+    "knn_q", "hollow", "ao_symm", "ao_verbose",
+    "mtry", "ytry"
   )
   prox_passthrough[intersect(names(prox_passthrough), drop_names)] <- NULL
 

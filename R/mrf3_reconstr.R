@@ -539,7 +539,8 @@ resolve_top_v_values <- function(dat_input,
                                  shared_k_for_tune = NULL,
                                  model_top_v_tune_args = list(),
                                  fused_top_v_tune_args = list(),
-                                 stage_prefix = "[Stage 3/5]") {
+                                 stage_prefix = "[Stage 3/5]",
+                                 verbose = TRUE) {
   tuning <- list(
     model_top_v = NULL,
     fused_top_v = NULL
@@ -552,8 +553,13 @@ resolve_top_v_values <- function(dat_input,
   )
 
   model_use <- model_top_v_input
-  if (is.null(model_use)) {
-    message(stage_prefix, " Auto-tuning model_top_v..")
+  if (identical(model_use, Inf)) {
+    # Inf = no truncation (use all neighbors)
+    n_samples <- nrow(dat_input[[1]])
+    model_use <- as.integer(n_samples)
+    if (verbose) message("  model_top_v: all ", n_samples, " neighbors.")
+  } else if (is.null(model_use)) {
+    if (verbose) message("Tuning model_top_v..")
     tune_defaults <- list(
       dat.list = dat_input,
       mod = tune_mod,
@@ -571,14 +577,18 @@ resolve_top_v_values <- function(dat_input,
       column = "model_top_v",
       allow_infinite = FALSE
     )
-    message("Auto-tuned model_top_v selected: ", model_use)
+    if (verbose) message("  model_top_v = ", model_use)
   } else {
     model_use <- as.integer(model_use)
   }
 
   fused_use <- if (disable_fused_top_v) NULL else fused_top_v_input
-  if (is.null(fused_use) && !disable_fused_top_v) {
-    message(stage_prefix, " Auto-tuning fused_top_v..")
+  if (identical(fused_use, Inf)) {
+    # Inf = no truncation
+    fused_use <- NULL
+    if (verbose) message("  fused_top_v: no truncation.")
+  } else if (is.null(fused_use) && !disable_fused_top_v) {
+    if (verbose) message("Tuning fused_top_v..")
     tune_defaults <- list(
       dat.list = dat_input,
       mod = tune_mod,
@@ -598,9 +608,9 @@ resolve_top_v_values <- function(dat_input,
       allow_infinite = TRUE
     )
     if (is.null(fused_use)) {
-      message("Auto-tuned fused_top_v selected: no truncation (Inf).")
+      if (verbose) message("  fused_top_v: no truncation.")
     } else {
-      message("Auto-tuned fused_top_v selected: ", fused_use)
+      if (verbose) message("  fused_top_v = ", fused_use)
     }
   } else if (!is.null(fused_use)) {
     fused_use <- as.integer(fused_use)

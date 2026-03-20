@@ -12,8 +12,10 @@
 #' @param proximity Proximity output mode for the legacy `randomForestSRC`
 #' fallback. Ignored by the native engine, which always returns the full
 #' `n x n` proximity matrix.
-#' @param ytry Optional `ytry` value passed to `randomForestSRC::rfsrc()`
-#' when `engine != "native"`.
+#' @param mtry Number of candidate X variables per split. Default `NULL` =
+#'   `floor(sqrt(px))`. Passed to native engine; ignored by rfsrc fallback.
+#' @param ytry Number of candidate Y variables per split. Default `NULL` =
+#'   `floor(sqrt(qy))` for supervised, `15` for unsupervised.
 #' @param seed Random seed passed to the selected engine.
 #' @param engine Forest backend. Default is `getOption("multiRF.engine", "native")`.
 #' Native is the default and recommended engine. `randomForestSRC` is used only
@@ -25,7 +27,8 @@
 #' classification, multivariate regression, and unsupervised fitting.
 #' `randomForestSRC` is optional and is only used when `engine != "native"`.
 fit_rfsrc <-  function(X, Y = NULL, type = "regression", nodedepth = NULL,
-                       ntree = 200, forest.wt = "all", proximity = "all", ytry = NULL,
+                       ntree = 200, forest.wt = "all", proximity = "all",
+                       mtry = NULL, ytry = NULL,
                        seed = -10, engine = getOption("multiRF.engine", "native"), ...){
 
   X <- data.frame(X)
@@ -35,6 +38,7 @@ fit_rfsrc <-  function(X, Y = NULL, type = "regression", nodedepth = NULL,
       X = X,
       Y = Y,
       ntree = as.integer(ntree),
+      mtry = mtry,
       nodesize = 5L,
       seed = as.integer(seed)
     ))
@@ -42,11 +46,11 @@ fit_rfsrc <-  function(X, Y = NULL, type = "regression", nodedepth = NULL,
 
   # Use native C++ engine for multivariate regression (default)
   if (identical(engine, "native") && identical(type, "regression") && !is.null(Y)) {
-    ytry_val <- if (is.null(ytry)) 0L else as.integer(ytry)
     return(fit_mv_forest(
       X = X, Y = Y,
       ntree = as.integer(ntree),
-      ytry = ytry_val,
+      mtry = mtry,
+      ytry = ytry,
       nodesize = 5L,
       seed = as.integer(seed)
     ))
@@ -101,17 +105,17 @@ fit_rfsrc <-  function(X, Y = NULL, type = "regression", nodedepth = NULL,
   }
   if(type == "unsupervised"){
 
-    if(is.null(ytry)) ytry <- 10
-
     if (identical(engine, "native")) {
       return(fit_mv_forest_unsup(
         X = X,
         ntree = as.integer(ntree),
-        ytry = as.integer(ytry),
+        ytry = ytry,
         nodesize = 5L,
         seed = as.integer(seed)
       ))
     }
+
+    if(is.null(ytry)) ytry <- 15L  # legacy rfsrc fallback default
 
     mrf <- randomForestSRC::rfsrc(
       data = X,
@@ -136,10 +140,13 @@ fit_rfsrc <-  function(X, Y = NULL, type = "regression", nodedepth = NULL,
 #' @param connect_list A pre-defined connection list between datasets. If `NULL`,
 #' all directed pairwise connections are enumerated.
 #' @param var.wt Optional variable-weight list aligned with `dat.list`.
-#' @param yprob Proportion of response variables used for tuning `ytry`.
+#' @param yprob Deprecated. Use `ytry` directly instead.
+#' @param ytry Number of response variables randomly selected per split.
+#'   Default `NULL` means the native engine uses `ceil(sqrt(qy))`.
+#'   Set to a specific integer to override (e.g., `ytry = ncol(Y) / 2`).
 #' @rdname fit_rfsrc
 #'
-fit_multi_rfsrc <- function(dat.list, connect_list = NULL, var.wt = NULL, yprob = 1, seed = -10, ...){
+fit_multi_rfsrc <- function(dat.list, connect_list = NULL, var.wt = NULL, yprob = 1, ytry = NULL, seed = -10, ...){
 
   if(is.null(connect_list)){
 
@@ -158,17 +165,15 @@ fit_multi_rfsrc <- function(dat.list, connect_list = NULL, var.wt = NULL, yprob 
           varwt <- NULL
         }
 
+        # Resolve ytry: explicit > default (0 = let C++ decide)
+        ytry_use <- if (!is.null(ytry)) as.integer(ytry) else 0L
+
         if(length(dat_fit) == 1){
 
-          # Native engine uses sqrt(qy) by default (ytry=0 triggers C++ default)
-          ytry <- 0L
-          mod <- fit_rfsrc(dat_fit[[1]], xvar.wt = varwt[[1]], ytry = ytry, seed = seed, ...)
+          mod <- fit_rfsrc(dat_fit[[1]], xvar.wt = varwt[[1]], ytry = ytry_use, seed = seed, ...)
         } else {
 
-          # Let native engine choose ytry = ceil(sqrt(qy)) via ytry=0
-          ytry <- 0L
-
-          mod <- fit_rfsrc(dat_fit[[2]], dat_fit[[1]], xvar.wt = varwt[[2]], yvar.wt = varwt[[1]], ytry = ytry, seed = seed, ...)
+          mod <- fit_rfsrc(dat_fit[[2]], dat_fit[[1]], xvar.wt = varwt[[2]], yvar.wt = varwt[[1]], ytry = ytry_use, seed = seed, ...)
         }
 
 

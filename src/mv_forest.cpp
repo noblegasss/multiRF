@@ -8,9 +8,11 @@
 //   - membership  : n x ntree (terminal node IDs)
 //   - tree_info   : per-tree structure for downstream IMD
 //
-// Split criterion: multivariate between-group sum of squares on Y
-//   score = sum_j [ (sum_L_j)^2/nL + (sum_R_j)^2/nR ]
-//   where Y is column-centered within the node.
+// Split criterion: normalized multivariate between-group sum of squares on Y
+//   score = sum_j [ ((sum_L_j)^2/nL + (sum_R_j)^2/nR) / var_j ]
+//   where Y is column-centered within the node and var_j is the
+//   within-node variance of Y column j (matching randomForestSRC's
+//   standardized composite splitting rule).
 
 #include <Rcpp.h>
 #include <vector>
@@ -92,14 +94,27 @@ static bool find_best_split(
   std::shuffle(y_candidates.begin(), y_candidates.end(), rng);
   int n_y_try = std::min(ytry, qy);
 
-  // Pre-compute column means for selected Y within this node
+  // Pre-compute column means and variances for selected Y within this node
   std::vector<double> y_means(n_y_try, 0.0);
+  std::vector<double> y_vars(n_y_try, 0.0);
   for (int jj = 0; jj < n_y_try; jj++) {
     int j = y_candidates[jj];
     for (int k = 0; k < n_node; k++) {
       y_means[jj] += Y(samples[k], j);
     }
     y_means[jj] /= n_node;
+  }
+  // Compute within-node variance for each selected Y column
+  for (int jj = 0; jj < n_y_try; jj++) {
+    int j = y_candidates[jj];
+    double ss = 0.0;
+    for (int k = 0; k < n_node; k++) {
+      double d = Y(samples[k], j) - y_means[jj];
+      ss += d * d;
+    }
+    // Use (n-1) denominator; guard against zero-variance columns
+    y_vars[jj] = (n_node > 1) ? ss / (n_node - 1) : 1.0;
+    if (y_vars[jj] < 1e-12) y_vars[jj] = 1.0;  // degenerate → skip normalization
   }
 
   best_score = -1.0;
@@ -139,22 +154,25 @@ static bool find_best_split(
       // Skip if children too small
       if (nL < nodesize_min || nR < nodesize_min) continue;
 
-      // Compute score: sum_j [ sum_L_j^2/nL + sum_R_j^2/nR ]
+      // Compute normalized score: sum_j [ (sum_L_j^2/nL + sum_R_j^2/nR) / var_j ]
       // sum_R_j = total_j - sum_L_j, but total_j = 0 (centered)
       // so sum_R_j = -sum_L_j
+      // Division by var_j standardizes each Y coordinate to unit variance
+      // (matching randomForestSRC's D*_q(s,t) formula)
       double score = 0.0;
       for (int jj = 0; jj < n_y_try; jj++) {
         double sL = sum_L[jj];
-        score += (sL * sL) / nL + (sL * sL) / nR;
+        score += ((sL * sL) / nL + (sL * sL) / nR) / y_vars[jj];
       }
 
       if (score > best_score) {
         best_score = score;
         // Record per-Y split stats for IMD (only for the ytry columns tried)
+        // Normalize by within-node variance to match the split criterion
         best_y_stats.assign(qy, 0.0);
         for (int jj = 0; jj < n_y_try; jj++) {
           double sL = sum_L[jj];
-          best_y_stats[y_candidates[jj]] = (sL * sL) / nL + (sL * sL) / nR;
+          best_y_stats[y_candidates[jj]] = ((sL * sL) / nL + (sL * sL) / nR) / y_vars[jj];
         }
         best_var = xvar;
         best_val = (x_sorted[s].first + x_sorted[s + 1].first) / 2.0;
@@ -299,7 +317,7 @@ List fit_mv_forest_cpp(NumericMatrix X, NumericMatrix Y,
 
   // Defaults
   if (mtry <= 0) mtry = std::max(1, (int)std::sqrt((double)px));
-  if (ytry <= 0) ytry = std::max(1, (int)std::ceil(std::sqrt((double)qy)));
+  if (ytry <= 0) ytry = std::max(1, (int)std::sqrt((double)qy));  // default: sqrt(qy)
   if (max_depth <= 0) max_depth = 150;
 
   #ifdef _OPENMP
@@ -367,14 +385,14 @@ List fit_mv_forest_cpp(NumericMatrix X, NumericMatrix Y,
       int g = (int)group.size();
       if (g == 0) continue;
       double wt = 1.0 / g;
+      // Diagonal: self-weight from leaf membership (needed by prepare_weight_matrix)
       for (int a = 0; a < g; a++) {
-        int ia = group[a];
-        // Diagonal
-        fw_local[ia * n + ia] += wt;
-        prox_local[ia * n + ia] += 1.0;
-        // Off-diagonal
+        fw_local[group[a] * n + group[a]] += wt;
+      }
+      // Off-diagonal
+      for (int a = 0; a < g; a++) {
         for (int b = a + 1; b < g; b++) {
-          int ib = group[b];
+          int ia = group[a], ib = group[b];
           prox_local[ia * n + ib] += 1.0;
           prox_local[ib * n + ia] += 1.0;
           fw_local[ia * n + ib] += wt;
@@ -620,7 +638,9 @@ List fit_mv_forest_unsup_cpp(NumericMatrix data,
     MatrixView Y_sub(Y_buf.data(), n, n_y);
 
     int mtry_t = std::max(1, (int)std::sqrt((double)n_x));
-    int ytry_t = std::min(ytry, n_y);
+    // ytry <= 0 means "use default sqrt(n_y)" per tree
+    int ytry_t = (ytry <= 0) ? std::max(1, (int)std::sqrt((double)n_y))
+                              : std::min(ytry, n_y);
 
     // Bootstrap WITH replacement (keep duplicates)
     std::vector<int> bag(n);
@@ -645,14 +665,14 @@ List fit_mv_forest_unsup_cpp(NumericMatrix data,
       int g = (int)group.size();
       if (g == 0) continue;
       double wt = 1.0 / g;
+      // Diagonal: self-weight from leaf membership (needed by prepare_weight_matrix)
       for (int a = 0; a < g; a++) {
-        int ia = group[a];
-        // Diagonal
-        fw_local[ia * n + ia] += wt;
-        prox_local[ia * n + ia] += 1.0;
-        // Off-diagonal
+        fw_local[group[a] * n + group[a]] += wt;
+      }
+      // Off-diagonal
+      for (int a = 0; a < g; a++) {
         for (int b = a + 1; b < g; b++) {
-          int ib = group[b];
+          int ia = group[a], ib = group[b];
           prox_local[ia * n + ib] += 1.0;
           prox_local[ib * n + ia] += 1.0;
           fw_local[ia * n + ib] += wt;
