@@ -108,6 +108,8 @@ mrf3_fit <- function(dat.list,
                           fused_top_v = Inf,
                           fused_row_normalize = TRUE,
                           fused_keep_ties = TRUE,
+                          top_v_method = c("neff", "entropy_elbow"),
+                          neff_quantile = 0.5,
                           model_top_v_tune_args = list(),
                           fused_top_v_tune_args = list(),
                           return_data = FALSE,
@@ -266,6 +268,7 @@ mrf3_fit <- function(dat.list,
 
   disable_fused_top_v <- isFALSE(fused_top_v)
 
+  top_v_method <- match.arg(top_v_method)
   top_v_main <- resolve_top_v_values(
     dat_input = dat_fit,
     mod_input = mod_list,
@@ -275,6 +278,8 @@ mrf3_fit <- function(dat.list,
     fused_top_v_input = fused_top_v,
     disable_fused_top_v = disable_fused_top_v,
     shared_k_for_tune = shared_k_for_tune,
+    top_v_method = top_v_method,
+    neff_quantile = neff_quantile,
     model_top_v_tune_args = model_top_v_tune_args,
     fused_top_v_tune_args = fused_top_v_tune_args,
     stage_prefix = "[Stage 3/5]",

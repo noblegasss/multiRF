@@ -537,10 +537,13 @@ resolve_top_v_values <- function(dat_input,
                                  fused_top_v_input,
                                  disable_fused_top_v = FALSE,
                                  shared_k_for_tune = NULL,
+                                 top_v_method = c("neff", "entropy_elbow"),
+                                 neff_quantile = 0.5,
                                  model_top_v_tune_args = list(),
                                  fused_top_v_tune_args = list(),
                                  stage_prefix = "[Stage 3/5]",
                                  verbose = TRUE) {
+  top_v_method <- match.arg(top_v_method)
   tuning <- list(
     model_top_v = NULL,
     fused_top_v = NULL
@@ -559,25 +562,48 @@ resolve_top_v_values <- function(dat_input,
     model_use <- as.integer(n_samples)
     if (verbose) message("  model_top_v: all ", n_samples, " neighbors.")
   } else if (is.null(model_use)) {
-    if (verbose) message("Tuning model_top_v..")
-    tune_defaults <- list(
-      dat.list = dat_input,
-      mod = tune_mod,
-      tmin = max(10L, as.integer(ceiling(0.08 * nrow(dat_input[[1]])))),
-      object = "entropy_elbow"
-    )
-    if (is.null(model_top_v_tune_args$k) && !is.null(shared_k_for_tune)) {
-      tune_defaults$k <- shared_k_for_tune
+    if (identical(top_v_method, "neff")) {
+      # Fast path: select v from effective neighbourhood size
+      if (verbose) message("Selecting model_top_v via effective neighbourhood size..")
+      rfit <- if (!is.null(mod_input$mod)) mod_input$mod else mod_input
+      # Compute adjusted weight matrices and pick v from their neff
+      neff_vals <- vapply(rfit, function(m) {
+        fw <- m$forest.wt
+        if (is.null(fw)) return(NA_real_)
+        W_adj <- prepare_weight_matrix(fw, adjust = TRUE, top_v = NULL,
+                                       row_normalize = TRUE, zero_diag = TRUE)
+        stats::median(effective_neighbourhood_size(W_adj), na.rm = TRUE)
+      }, numeric(1))
+      neff_vals <- neff_vals[is.finite(neff_vals)]
+      if (length(neff_vals) == 0L) {
+        model_use <- as.integer(nrow(dat_input[[1]]))
+        if (verbose) message("  model_top_v: fallback to all ", model_use, " neighbors.")
+      } else {
+        model_use <- as.integer(ceiling(stats::quantile(neff_vals, probs = neff_quantile, na.rm = TRUE)))
+        model_use <- max(model_use, 10L)
+        if (verbose) message("  model_top_v = ", model_use, " (neff method, median neff across connections)")
+      }
+    } else {
+      if (verbose) message("Tuning model_top_v..")
+      tune_defaults <- list(
+        dat.list = dat_input,
+        mod = tune_mod,
+        tmin = max(10L, as.integer(ceiling(0.08 * nrow(dat_input[[1]])))),
+        object = "entropy_elbow"
+      )
+      if (is.null(model_top_v_tune_args$k) && !is.null(shared_k_for_tune)) {
+        tune_defaults$k <- shared_k_for_tune
+      }
+      final_tune_args <- utils::modifyList(tune_defaults, model_top_v_tune_args)
+      final_tune_args$object <- "entropy_elbow"
+      tuning$model_top_v <- do.call(tune_model_top_v, final_tune_args)
+      model_use <- pick_tuned_value(
+        tb = tuning$model_top_v$tmax_tb,
+        column = "model_top_v",
+        allow_infinite = FALSE
+      )
+      if (verbose) message("  model_top_v = ", model_use)
     }
-    final_tune_args <- utils::modifyList(tune_defaults, model_top_v_tune_args)
-    final_tune_args$object <- "entropy_elbow"
-    tuning$model_top_v <- do.call(tune_model_top_v, final_tune_args)
-    model_use <- pick_tuned_value(
-      tb = tuning$model_top_v$tmax_tb,
-      column = "model_top_v",
-      allow_infinite = FALSE
-    )
-    if (verbose) message("  model_top_v = ", model_use)
   } else {
     model_use <- as.integer(model_use)
   }
@@ -588,29 +614,57 @@ resolve_top_v_values <- function(dat_input,
     fused_use <- NULL
     if (verbose) message("  fused_top_v: no truncation.")
   } else if (is.null(fused_use) && !disable_fused_top_v) {
-    if (verbose) message("Tuning fused_top_v..")
-    tune_defaults <- list(
-      dat.list = dat_input,
-      mod = tune_mod,
-      model_top_v = model_use,
-      vmin = min(10L, nrow(dat_input[[1]])),
-      object = "entropy_elbow"
-    )
-    if (is.null(fused_top_v_tune_args$k) && !is.null(shared_k_for_tune)) {
-      tune_defaults$k <- shared_k_for_tune
-    }
-    final_tune_args <- utils::modifyList(tune_defaults, fused_top_v_tune_args)
-    final_tune_args$object <- "entropy_elbow"
-    tuning$fused_top_v <- do.call(tune_fused_top_v, final_tune_args)
-    fused_use <- pick_tuned_value(
-      tb = tuning$fused_top_v$vtop_tb,
-      column = "fused_top_v",
-      allow_infinite = TRUE
-    )
-    if (is.null(fused_use)) {
-      if (verbose) message("  fused_top_v: no truncation.")
+    if (identical(top_v_method, "neff")) {
+      # Fast path: build fused weight matrix, then select v from neff
+      if (verbose) message("Selecting fused_top_v via effective neighbourhood size..")
+      rfit <- if (!is.null(mod_input$mod)) mod_input$mod else mod_input
+      alpha <- compute_tune_model_alpha(
+        model_names = names(rfit),
+        connection_score = connection_score
+      )
+      cache_list <- build_model_weight_cache_list(rfit, vmax = model_use)
+      W_fused <- build_fused_weight_from_cache(
+        cache_list = cache_list,
+        top_v = model_use,
+        alpha = alpha,
+        keep_ties = TRUE
+      )
+      W_fused <- postprocess_fused_weight(
+        W = W_fused, top_v = NULL, row_normalize = TRUE, keep_ties = TRUE
+      )
+      fused_use <- select_top_v_neff(W_fused, quantile_prob = neff_quantile, min_v = 10L)
+      # If neff is close to n, skip truncation
+      if (fused_use >= as.integer(0.8 * ncol(W_fused))) {
+        fused_use <- NULL
+        if (verbose) message("  fused_top_v: no truncation (neff >= 80% of n).")
+      } else {
+        if (verbose) message("  fused_top_v = ", fused_use, " (neff method)")
+      }
     } else {
-      if (verbose) message("  fused_top_v = ", fused_use)
+      if (verbose) message("Tuning fused_top_v..")
+      tune_defaults <- list(
+        dat.list = dat_input,
+        mod = tune_mod,
+        model_top_v = model_use,
+        vmin = min(10L, nrow(dat_input[[1]])),
+        object = "entropy_elbow"
+      )
+      if (is.null(fused_top_v_tune_args$k) && !is.null(shared_k_for_tune)) {
+        tune_defaults$k <- shared_k_for_tune
+      }
+      final_tune_args <- utils::modifyList(tune_defaults, fused_top_v_tune_args)
+      final_tune_args$object <- "entropy_elbow"
+      tuning$fused_top_v <- do.call(tune_fused_top_v, final_tune_args)
+      fused_use <- pick_tuned_value(
+        tb = tuning$fused_top_v$vtop_tb,
+        column = "fused_top_v",
+        allow_infinite = TRUE
+      )
+      if (is.null(fused_use)) {
+        if (verbose) message("  fused_top_v: no truncation.")
+      } else {
+        if (verbose) message("  fused_top_v = ", fused_use)
+      }
     }
   } else if (!is.null(fused_use)) {
     fused_use <- as.integer(fused_use)

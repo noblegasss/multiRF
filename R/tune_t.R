@@ -201,7 +201,7 @@ tune_fused_top_v <- function(dat.list, mod, vmin = 10, by = 1, vmax = NULL,
                              seed = 529,
                              object = "entropy_elbow",
                              early_stop = FALSE,
-                             elbow_rel_tol = 0.25,
+                             elbow_rel_tol = 0.1,
                              elbow_abs_tol = 1e-4,
                              elbow_min_points = 4L,
                              elbow_min_frac = 0.2,
@@ -630,6 +630,59 @@ evaluate_similarity_for_tuning <- function(S, k_use = NULL) {
     diffe = diffe,
     k = as.integer(length(unique(clm$cl)))
   )
+}
+
+#' Compute effective neighbourhood size for each row of a weight matrix
+#'
+#' For each row \eqn{w_i}, the effective neighbourhood size is defined as
+#' \eqn{n_{\mathrm{eff},i} = \exp(H(w_i))}, where
+#' \eqn{H(w_i) = -\sum_j w_{ij} \log w_{ij}} is the Shannon entropy.
+#' This equals the number of equally-weighted neighbours that would
+#' produce the same entropy.
+#'
+#' @param W A square row-stochastic weight matrix (or will be row-normalised).
+#' @param eps Small positive value to avoid log(0).
+#' @return A numeric vector of length \code{nrow(W)} containing \eqn{n_{\mathrm{eff},i}}.
+#' @keywords internal
+effective_neighbourhood_size <- function(W, eps = 1e-12) {
+  W <- as.matrix(W)
+  W[!is.finite(W)] <- 0
+  W <- pmax(W, 0)
+
+  rs <- rowSums(W)
+  prob <- W
+  ok <- rs > eps
+  if (any(ok)) {
+    prob[ok, ] <- W[ok, , drop = FALSE] / rs[ok]
+  }
+  if (any(!ok)) {
+    prob[!ok, ] <- 0
+  }
+
+  apply(prob, 1, function(v) {
+    v <- v[v > eps]
+    if (length(v) <= 1L) return(1)
+    exp(-sum(v * log(v)))
+  })
+}
+
+#' Select top-v from effective neighbourhood size
+#'
+#' Sets \eqn{v = \lceil \mathrm{quantile}_q(n_{\mathrm{eff},i}) \rceil}
+#' where \eqn{n_{\mathrm{eff},i} = \exp(H(w_i))}.
+#'
+#' @param W A square weight matrix.
+#' @param quantile_prob Quantile probability. Default 0.5 (median).
+#' @param min_v Floor on the returned value.
+#' @param eps Small positive value for entropy computation.
+#' @return A single integer: the selected top-v.
+#' @export
+select_top_v_neff <- function(W, quantile_prob = 0.5, min_v = 10L, eps = 1e-12) {
+  neff <- effective_neighbourhood_size(W, eps = eps)
+  v <- as.integer(ceiling(stats::quantile(neff, probs = quantile_prob, na.rm = TRUE)))
+  v <- max(v, as.integer(min_v))
+  v <- min(v, ncol(W))
+  v
 }
 
 calc_fused_weight_entropy <- function(W, eps = 1e-12) {
