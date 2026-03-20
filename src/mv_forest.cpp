@@ -171,11 +171,16 @@ static bool find_best_split_part(
         double prev_x = X(order[s - 1], xvar);
         if (x_val != prev_x) {
           double score = 0.0;
+          int deltaNorm = 0;
           for (int jj = 0; jj < n_y_try; jj++) {
-            double sL = sum_L[jj];
-            score += (sL * sL) / nL + (sL * sL) / (n_node - nL);
+            if (y_sds[jj] > 1e-12) {
+              double sL = sum_L[jj];
+              score += (sL * sL) / nL + (sL * sL) / (n_node - nL);
+              deltaNorm++;
+            }
           }
-          score /= n_y_try;
+          if (deltaNorm > 0) score /= deltaNorm;
+          else continue;
 
           if (score > best_score) {
             best_score = score;
@@ -457,13 +462,17 @@ static bool find_best_split_fast(
         // Evaluate split between prev_x and x_val
         int nR = n_node - nL;
         double score = 0.0;
+        int deltaNorm = 0;
         for (int jj = 0; jj < n_y_try; jj++) {
-          double sL = sum_L[jj];
-          score += (sL * sL) / nL + (sL * sL) / nR;
+          if (y_sds[jj] > 1e-12) {
+            double sL = sum_L[jj];
+            score += (sL * sL) / nL + (sL * sL) / nR;
+            deltaNorm++;
+          }
         }
-        score /= n_y_try;
+        if (deltaNorm > 0) score /= deltaNorm;
 
-        if (score > best_score) {
+        if (deltaNorm > 0 && score > best_score) {
           best_score = score;
           best_y_stats.assign(qy, 0.0);
           for (int jj = 0; jj < n_y_try; jj++) {
@@ -697,15 +706,18 @@ static bool find_best_split(
       // Skip if children too small
       if (nL < nodesize_min || nR < nodesize_min) continue;
 
-      // Score = average_j { (sum_L_j*)^2 / nL + (sum_R_j*)^2 / nR }
-      // where Y* is pre-standardized, sum_R* = -sum_L* (centered).
-      // randomForestSRC averages over the informative response coordinates.
+      // Score = average over informative Y columns (matching rfsrc deltaNorm)
       double score = 0.0;
+      int deltaNorm = 0;
       for (int jj = 0; jj < n_y_try; jj++) {
-        double sL = sum_L[jj];
-        score += (sL * sL) / nL + (sL * sL) / nR;
+        if (y_sds[jj] > 1e-12) {
+          double sL = sum_L[jj];
+          score += (sL * sL) / nL + (sL * sL) / nR;
+          deltaNorm++;
+        }
       }
-      score /= n_y_try;
+      if (deltaNorm > 0) score /= deltaNorm;
+      else continue;
 
       if (score > best_score) {
         best_score = score;
