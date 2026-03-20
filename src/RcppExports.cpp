@@ -40,8 +40,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // fit_mv_forest_cpp
-List fit_mv_forest_cpp(NumericMatrix X, NumericMatrix Y, int ntree, int mtry, int ytry, int nodesize_min, int max_depth, int seed, int nthread, int samptype, int prox_mode);
-RcppExport SEXP _multiRF_fit_mv_forest_cpp(SEXP XSEXP, SEXP YSEXP, SEXP ntreeSEXP, SEXP mtrySEXP, SEXP ytrySEXP, SEXP nodesize_minSEXP, SEXP max_depthSEXP, SEXP seedSEXP, SEXP nthreadSEXP, SEXP samptypeSEXP, SEXP prox_modeSEXP) {
+List fit_mv_forest_cpp(NumericMatrix X, NumericMatrix Y, int ntree, int mtry, int ytry, int nsplit, int nodesize_min, int max_depth, int seed, int nthread, int samptype, int prox_mode);
+RcppExport SEXP _multiRF_fit_mv_forest_cpp(SEXP XSEXP, SEXP YSEXP, SEXP ntreeSEXP, SEXP mtrySEXP, SEXP ytrySEXP, SEXP nsplitSEXP, SEXP nodesize_minSEXP, SEXP max_depthSEXP, SEXP seedSEXP, SEXP nthreadSEXP, SEXP samptypeSEXP, SEXP prox_modeSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -50,13 +50,14 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type ntree(ntreeSEXP);
     Rcpp::traits::input_parameter< int >::type mtry(mtrySEXP);
     Rcpp::traits::input_parameter< int >::type ytry(ytrySEXP);
+    Rcpp::traits::input_parameter< int >::type nsplit(nsplitSEXP);
     Rcpp::traits::input_parameter< int >::type nodesize_min(nodesize_minSEXP);
     Rcpp::traits::input_parameter< int >::type max_depth(max_depthSEXP);
     Rcpp::traits::input_parameter< int >::type seed(seedSEXP);
     Rcpp::traits::input_parameter< int >::type nthread(nthreadSEXP);
     Rcpp::traits::input_parameter< int >::type samptype(samptypeSEXP);
     Rcpp::traits::input_parameter< int >::type prox_mode(prox_modeSEXP);
-    rcpp_result_gen = Rcpp::wrap(fit_mv_forest_cpp(X, Y, ntree, mtry, ytry, nodesize_min, max_depth, seed, nthread, samptype, prox_mode));
+    rcpp_result_gen = Rcpp::wrap(fit_mv_forest_cpp(X, Y, ntree, mtry, ytry, nsplit, nodesize_min, max_depth, seed, nthread, samptype, prox_mode));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -95,7 +96,7 @@ END_RCPP
 static const R_CallMethodDef CallEntries[] = {
     {"_multiRF_build_tree_network_cpp", (DL_FUNC) &_multiRF_build_tree_network_cpp, 5},
     {"_multiRF_compute_split_stats_cpp", (DL_FUNC) &_multiRF_compute_split_stats_cpp, 4},
-    {"_multiRF_fit_mv_forest_cpp", (DL_FUNC) &_multiRF_fit_mv_forest_cpp, 11},
+    {"_multiRF_fit_mv_forest_cpp", (DL_FUNC) &_multiRF_fit_mv_forest_cpp, 12},
     {"_multiRF_fit_mv_forest_unsup_cpp", (DL_FUNC) &_multiRF_fit_mv_forest_unsup_cpp, 9},
     {"_multiRF_tsne_cost_gradient_cpp", (DL_FUNC) &_multiRF_tsne_cost_gradient_cpp, 2},
     {NULL, NULL, 0}

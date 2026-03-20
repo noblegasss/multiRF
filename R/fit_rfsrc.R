@@ -7,8 +7,8 @@
 #' Ignored by the native engine.
 #' @param ntree Number of trees.
 #' @param forest.wt Forest-weight output mode for the legacy
-#' `randomForestSRC` fallback. Ignored by the native engine, which always
-#' returns the full `n x n` forest-weight matrix.
+#' `randomForestSRC` fallback. The native engine currently returns an
+#' inbag-style full `n x n` forest-weight matrix regardless of this flag.
 #' @param proximity Proximity output mode for the legacy `randomForestSRC`
 #' fallback. Ignored by the native engine, which always returns the full
 #' `n x n` proximity matrix.
@@ -16,6 +16,8 @@
 #'   `floor(sqrt(px))`. Passed to native engine; ignored by rfsrc fallback.
 #' @param ytry Number of candidate Y variables per split. Default `NULL` =
 #'   `ceiling(qy/3)` for supervised, `15` for unsupervised.
+#' @param nsplit Number of candidate numeric cutpoints evaluated per variable.
+#'   Native and `randomForestSRC` both default to `10`; set `0` to scan all.
 #' @param seed Random seed passed to the selected engine.
 #' @param engine Forest backend. Default is `getOption("multiRF.engine", "native")`.
 #' Native is the default and recommended engine. `randomForestSRC` is used only
@@ -27,8 +29,8 @@
 #' classification, multivariate regression, and unsupervised fitting.
 #' `randomForestSRC` is optional and is only used when `engine != "native"`.
 fit_forest <-  function(X, Y = NULL, type = "regression", nodedepth = NULL,
-                       ntree = 200, forest.wt = "all", proximity = "all",
-                       mtry = NULL, ytry = NULL,
+                       ntree = 200, forest.wt = "inbag", proximity = "all",
+                       mtry = NULL, ytry = NULL, nsplit = 10,
                        samptype = c("swor", "swr"),
                        seed = -10, engine = getOption("multiRF.engine", "native"), ...){
 
@@ -55,6 +57,7 @@ fit_forest <-  function(X, Y = NULL, type = "regression", nodedepth = NULL,
       ntree = as.integer(ntree),
       mtry = mtry,
       ytry = ytry,
+      nsplit = as.integer(nsplit),
       nodesize = 5L,
       seed = as.integer(seed),
       proximity = proximity,
