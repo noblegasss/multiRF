@@ -91,6 +91,7 @@ mrf3_cl_prox <- function(rfit, k = NULL,
     is_sub_mrf <- vapply(rfit, function(r) !is.null(r$sub_mrf_info), logical(1))
 
     if (all(has_precomputed)) {
+      message("[mrf3_cl_prox] Using pre-computed C++ enhanced proximity (fast path)")
       cl_mod <- NULL
       prox <- purrr::map(rfit, "enhanced_prox")
       prox <- Reduce("+", prox)
@@ -106,6 +107,9 @@ mrf3_cl_prox <- function(rfit, k = NULL,
       prox <- purrr::map(rfit, "proximity")
       prox <- Reduce("+", prox)
     } else {
+      message("[mrf3_cl_prox] enhanced_prox not pre-computed (",
+              sum(has_precomputed), "/", length(has_precomputed),
+              " models have it). Falling back to R-level cl_forest().")
       cl_mod <- plyr::llply(
         rfit,
         .fun = function(r){
