@@ -213,6 +213,17 @@ mrf3_fit <- function(dat.list,
     if (is.null(dots$leaf_embed_dim) && !is.null(clustering_args$leaf_embed_dim)) {
       dots$leaf_embed_dim <- clustering_args$leaf_embed_dim
     }
+    # Also inject into shared_specific_args so the residual unsupervised
+    # forests (for specific clustering) also get enhanced_prox computed in C++.
+    if (is.null(shared_specific_args$enhanced_prox)) {
+      shared_specific_args$enhanced_prox <- TRUE
+    }
+    if (!is.null(dots$sibling_gamma) && is.null(shared_specific_args$sibling_gamma)) {
+      shared_specific_args$sibling_gamma <- dots$sibling_gamma
+    }
+    if (!is.null(dots$leaf_embed_dim) && is.null(shared_specific_args$leaf_embed_dim)) {
+      shared_specific_args$leaf_embed_dim <- dots$leaf_embed_dim
+    }
   }
 
   init_args <- c(

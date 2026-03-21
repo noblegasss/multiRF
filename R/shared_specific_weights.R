@@ -98,11 +98,16 @@ get_shared_specific_weights <- function(dat.list,
     predicted[[d]] <- X_hat
     residual[[d]] <- R
 
-    r_mod <- fit_forest(
-      X = as.data.frame(R, check.names = FALSE),
-      Y = NULL,
-      type = "unsupervised"
-    )
+    # Forward enhanced_prox / sibling_gamma / leaf_embed_dim from ... if present
+    fit_extra <- dot_args[intersect(names(dot_args), c("enhanced_prox", "sibling_gamma", "leaf_embed_dim"))]
+    r_mod <- do.call(fit_forest, c(
+      list(
+        X = as.data.frame(R, check.names = FALSE),
+        Y = NULL,
+        type = "unsupervised"
+      ),
+      fit_extra
+    ))
     if (is.null(r_mod$forest.wt)) {
       stop("Residual unsupervised model for `", d, "` does not contain `forest.wt`.")
     }
