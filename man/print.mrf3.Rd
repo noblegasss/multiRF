@@ -17,5 +17,6 @@
 The input object, invisibly.
 }
 \description{
-Print method for \code{mrf3} objects
+Displays a compact summary of fitted multiRF models including
+block names, connection structure, weight statistics, and class info.
 }

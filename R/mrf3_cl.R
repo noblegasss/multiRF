@@ -147,8 +147,15 @@ merge_cluster_outputs <- function(shared_specific, specific_clustering) {
   )
   clusters <- shared_out$clustering$cl
   shared_out$clustering$cl <- NULL
+
+  # Pull variable-level IMD out of specific$weights to top level
+  spec_data <- shared_specific$specific
+  spec_imd <- spec_data$imd
+  spec_data$imd <- NULL
+
   specific_out <- list(
-    weights = shared_specific$specific,
+    weights = spec_data,
+    imd = spec_imd,
     clustering = specific_clustering$specific
   )
   list(

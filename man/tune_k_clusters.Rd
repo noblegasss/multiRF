@@ -12,23 +12,23 @@ tune_k_clusters(x, ...)
 
 \method{tune_k_clusters}{default}(
   x,
-  return_cluster = F,
-  plot_k = F,
+  return_cluster = FALSE,
+  plot_k = FALSE,
   method = "Spectral",
   tune_method = "silhouette",
   gap_w = "uniform",
-  prox = F,
+  prox = FALSE,
   ...
 )
 
 \method{tune_k_clusters}{mrf3}(
   x,
-  return_cluster = F,
-  plot_k = F,
+  return_cluster = FALSE,
+  plot_k = FALSE,
   method = "Spectral",
   tune_method = "silhouette",
   gap_w = "uniform",
-  prox = F,
+  prox = FALSE,
   ...
 )
 
@@ -37,7 +37,7 @@ spectral_cl(x, k_tune = seq(2, 12, by = 1), gap_w = "uniform", d = NULL, ...)
 pam_cl(
   x,
   k_tune = seq(2, 9, by = 1),
-  diss = T,
+  diss = TRUE,
   tune_method = "silhouette",
   ...
 )

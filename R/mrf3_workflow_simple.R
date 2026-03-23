@@ -12,6 +12,7 @@
 #' @param ntree Number of trees for RF fitting.
 #' @param top_v Optional unified top-v cutoff.
 #' If set, applies to both `model_top_v` and `fused_top_v`.
+#' @param samptype Sampling scheme passed through to `mrf3_fit()`.
 #' @param main_clustering Global clustering strategy applied consistently to
 #' shared, specific, and robust branches: `"similarity"` (default),
 #' `"proximity"`, or `"enhanced_proximity"`.

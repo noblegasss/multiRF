@@ -3,7 +3,9 @@
 #' @param dat.list A list containing multi-omics datasets with samples in rows and features in columns.
 #' @param ntree Number of trees for fitting MRF model. Default is 300.
 #' @param scale Whether to z-standardize each feature. Default is TRUE.
-#' @param ytry Probability of response features being selected in each node split. Default is 0.5.
+#' @param ytry Number of response variables sampled at each split. `NULL`
+#'   delegates to the engine default.
+#' @param samptype Sampling scheme passed to forest fitting: `"swor"` or `"swr"`.
 #' @param connect_list Optional pre-defined connection list. If `NULL`, the
 #' function fits all directed pairwise models first, then uses `find_connection()`
 #' to select one direction per omics pair.
@@ -25,6 +27,7 @@
 #'   `frac_predictor` (default 0.2), `ntree_per_sub` (default 25),
 #'   `min_response_for_sub` (default 500; blocks smaller than this use all features),
 #'   `min_predictor_for_sub` (default 500), `ytry` (default 0.5).
+#' @param verbose Logical; whether to print progress messages.
 #' @param seed Random seed.
 #' @param ... Additional arguments passed to forest fitting helpers.
 #'

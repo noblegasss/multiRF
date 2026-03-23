@@ -11,7 +11,8 @@ fit_sub_multi_rfsrc(
   frac_response = 0.2,
   frac_predictor = 0.2,
   ntree_per_sub = 25L,
-  yprob = 0.5,
+  mtry = NULL,
+  ytry = NULL,
   min_response = 20L,
   min_predictor = 30L,
   min_response_for_sub = 500L,
@@ -32,7 +33,7 @@ fit_sub_multi_rfsrc(
 
 \item{connect_list}{A list of connections, each a character vector of
 length 2: \code{c(response_name, predictor_name)}.  Same format as used
-by \code{fit_multi_rfsrc()}.}
+by \code{fit_multi_forest()}.}
 
 \item{n_sub}{Integer; number of sub-MRF replicates to fit.}
 
@@ -48,7 +49,11 @@ sub-model overfits to its response subset).}
 
 \item{ntree_per_sub}{Number of trees per sub-MRF (default 50).}
 
-\item{yprob}{Fraction of (sub-sampled) response columns used as \code{ytry}.}
+\item{mtry}{Number of candidate X variables per split. Passed through to
+\code{fit_forest()}.}
+
+\item{ytry}{Number of candidate Y variables per split
+(0 = \code{min(qy, ceiling(p/3))} default).}
 
 \item{min_response}{Minimum number of response columns per sub-MRF.}
 
@@ -81,17 +86,22 @@ Default \code{FALSE} because the extra computation is non-trivial.}
 
 \item{verbose}{Logical; print progress messages.}
 
-\item{...}{Passed to \code{fit_sub_mrf()} and then \code{fit_rfsrc()}.}
+\item{...}{Passed to \code{fit_sub_mrf()} and then \code{fit_forest()}.}
 }
 \value{
 A \strong{named list} of rfsrc-compatible objects, one per connection.
 Names follow the \code{"response_predictor"} convention used by
-\code{fit_multi_rfsrc()}.  Each object contains \code{forest.wt}, \code{forest.wt.oob},
+\code{fit_multi_forest()}.  Each object contains \code{forest.wt}, \code{forest.wt.oob},
 \code{proximity}, \code{xvar}, \code{yvar}.
 }
 \description{
-Higher-level wrapper that matches the interface of \code{fit_multi_rfsrc()}.
+Higher-level wrapper that matches the interface of \code{fit_multi_forest()}.
 For each directed connection (response_block -> predictor_block),
 features are sub-sampled from both blocks independently, and the
 resulting n x n matrices are averaged across replicates.
+}
+\details{
+Sub-MRF uses the default engine (native C++) for its internal fits.
+OOB forest-weight reconstruction uses the \code{inbag} matrix returned by
+the native engine.
 }

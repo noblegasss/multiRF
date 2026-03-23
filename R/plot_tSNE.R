@@ -1,5 +1,7 @@
 #' Multiple plot functions
 #' @param dat A data frame or matrix
+#' @param weights Weight vector or weight-carrying object for `plot_weights()`.
+#' @param mat Adjacency-like matrix for `plot_circos()`.
 #' @param mod A fitted model object used to compute embeddings internally.
 #' Can also be an `mrf3_fit` object.
 #' @param group Class group

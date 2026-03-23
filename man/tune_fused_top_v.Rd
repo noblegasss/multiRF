@@ -18,7 +18,7 @@ tune_fused_top_v(
   max_candidates = 20,
   reuse_tuned_k = TRUE,
   parallel = TRUE,
-  cores = max(1, parallel::detectCores() - 2),
+  cores = NULL,
   seed = 529,
   object = "entropy_elbow",
   early_stop = FALSE,

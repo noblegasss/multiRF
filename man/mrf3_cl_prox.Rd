@@ -7,10 +7,10 @@
 mrf3_cl_prox(
   rfit,
   k = NULL,
-  enhanced = T,
+  enhanced = TRUE,
   size_min = 5,
   use = "X",
-  symm = T,
+  symm = TRUE,
   leaf_embed_dim = 10,
   merge_quantile = 0.9,
   merge_mode = c("soft", "hard"),
@@ -18,10 +18,10 @@ mrf3_cl_prox(
   sibling_fun = c("constant", "positive", "shift01", "abs", "identity"),
   sibling_cap = TRUE,
   hard_prox_mode = c("soft_enhanced", "binary"),
-  parallel = T,
-  sparse = F,
+  parallel = TRUE,
+  sparse = FALSE,
   method_cl = "PAM",
-  cores = max(1, detectCores() - 2),
+  cores = NULL,
   ...
 )
 }

@@ -9,7 +9,7 @@
 #' @importFrom dplyr filter group_by mutate n select slice_max slice_min summarize_all summarise_at
 #' @importFrom graphics legend pairs par plot
 #' @importFrom grDevices colorRampPalette
-#' @importFrom stats as.formula cor density dgamma dist dnorm median model.matrix na.omit pnorm prcomp reorder rnorm sd setNames var
+#' @importFrom stats as.formula ave cor density dgamma dist dnorm median model.matrix na.omit pnorm prcomp quantile reorder rnorm sd setNames var
 #' @importFrom utils combn tail
 #' @import circlize
 #' @import cluster

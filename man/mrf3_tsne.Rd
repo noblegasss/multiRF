@@ -9,7 +9,7 @@ mrf3_tsne(
   dims = 2,
   max_iter = 1000,
   learning_rate = 200,
-  verbose = F,
+  verbose = FALSE,
   tol = 1e-05,
   patience = 10
 )

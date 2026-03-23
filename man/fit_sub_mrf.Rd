@@ -11,7 +11,8 @@ fit_sub_mrf(
   frac_response = 0.2,
   frac_predictor = 0.2,
   ntree_per_sub = 25L,
-  yprob = 0.5,
+  mtry = NULL,
+  ytry = NULL,
   min_response = 20L,
   min_predictor = 30L,
   enhanced = FALSE,
@@ -19,7 +20,7 @@ fit_sub_mrf(
   imd_args = list(),
   seed = 529L,
   parallel = FALSE,
-  cores = 2L,
+  cores = NULL,
   verbose = TRUE,
   ...
 )
@@ -43,8 +44,11 @@ sub-model overfits to its response subset).}
 
 \item{ntree_per_sub}{Number of trees per sub-MRF (default 50).}
 
-\item{yprob}{Fraction of (sub-sampled) response columns used as \code{ytry}.
-Default 0.5.  Lower values increase tree diversity.}
+\item{mtry}{Number of candidate X variables per split. Passed through to
+\code{fit_forest()}.}
+
+\item{ytry}{Number of candidate Y variables per split. Default \code{0L} means
+the C++ engine uses \code{min(qy, ceiling(p/3))}. A positive integer overrides this.}
 
 \item{min_response}{Minimum number of response columns per sub-MRF.}
 
@@ -69,7 +73,7 @@ Default \code{FALSE} because the extra computation is non-trivial.}
 
 \item{verbose}{Logical; print progress messages.}
 
-\item{...}{Additional arguments forwarded to \code{fit_rfsrc()}.}
+\item{...}{Additional arguments forwarded to \code{fit_forest()}.}
 }
 \value{
 An rfsrc-like list with:
@@ -99,5 +103,7 @@ subsets produces a smoothed estimate.
 \code{forest.wt.oob} is computed from each sub-model's \code{membership} and
 \code{inbag} matrices: for sample i, only trees where i is out-of-bag
 contribute to its weight row.  This provides a regularized version
-suitable for connection selection via \code{find_connection()}.
+suitable for connection selection via \code{find_connection()}. Because this
+requires \code{inbag}, sub-MRF currently uses the \code{randomForestSRC} fallback
+path even when the package default engine is native.
 }

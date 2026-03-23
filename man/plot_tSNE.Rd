@@ -30,7 +30,7 @@ plot_network(
   dat,
   group = NULL,
   label = FALSE,
-  cutoff = mean(dat),
+  cutoff = NULL,
   layout = igraph::layout_with_fr,
   vertex.size = 5,
   label.dist = 1,
@@ -148,7 +148,7 @@ For \code{plot_weights()}, supported values are:
 
 \item{vertex.label.degree}{Vertex label angle in network plots.}
 
-\item{weights}{A list of weights get from mrf3}
+\item{weights}{Weight vector or weight-carrying object for \code{plot_weights()}.}
 
 \item{plot.which}{Which omics block(s) to plot in \code{plot_weights()}.}
 
@@ -158,7 +158,7 @@ For \code{plot_weights()}, supported values are:
 
 \item{weight_source}{Alias of \code{source} used by \code{plot_weights()}.}
 
-\item{mat}{numeric matrix of the values to be plotted.}
+\item{mat}{Adjacency-like matrix for \code{plot_circos()}.}
 
 \item{names.list}{Named list of variable groups for \code{plot_circos()}.}
 

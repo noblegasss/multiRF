@@ -18,10 +18,18 @@
 #'   `ceiling(qy/3)` for supervised, `15` for unsupervised.
 #' @param nsplit Number of candidate numeric cutpoints evaluated per variable.
 #'   Native and `randomForestSRC` both default to `10`; set `0` to scan all.
+#' @param samptype Sampling scheme: `"swor"` (without replacement) or `"swr"`
+#'   (with replacement).
 #' @param seed Random seed passed to the selected engine.
 #' @param engine Forest backend. Default is `getOption("multiRF.engine", "native")`.
 #' Native is the default and recommended engine. `randomForestSRC` is used only
 #' as a non-native fallback when explicitly requested.
+#' @param enhanced_prox Logical; whether to compute enhanced proximity in the
+#'   native engine.
+#' @param sibling_gamma Strength of the sibling-leaf correction used by
+#'   enhanced proximity.
+#' @param leaf_embed_dim Embedding dimension used by the native enhanced
+#'   proximity path.
 #' @param ... Additional arguments passed to `randomForestSRC::rfsrc()`
 #' when `engine != "native"`.
 #' @return A model list
@@ -219,12 +227,45 @@ fit_multi_forest <- function(dat.list, connect_list = NULL, var.wt = NULL, yprob
 }
 
 # Backward compatibility aliases
-fit_rfsrc <- function(...) {
+fit_rfsrc <- function(X, Y = NULL, type = "regression", nodedepth = NULL,
+                      ntree = 200, forest.wt = "inbag", proximity = "all",
+                      mtry = NULL, ytry = NULL, nsplit = 10,
+                      samptype = c("swor", "swr"),
+                      seed = -10, engine = getOption("multiRF.engine", "native"),
+                      enhanced_prox = FALSE, sibling_gamma = 0.5,
+                      leaf_embed_dim = 10L, ...) {
   .Deprecated("fit_forest")
-  fit_forest(...)
+  fit_forest(
+    X = X,
+    Y = Y,
+    type = type,
+    nodedepth = nodedepth,
+    ntree = ntree,
+    forest.wt = forest.wt,
+    proximity = proximity,
+    mtry = mtry,
+    ytry = ytry,
+    nsplit = nsplit,
+    samptype = samptype,
+    seed = seed,
+    engine = engine,
+    enhanced_prox = enhanced_prox,
+    sibling_gamma = sibling_gamma,
+    leaf_embed_dim = leaf_embed_dim,
+    ...
+  )
 }
 
-fit_multi_rfsrc <- function(...) {
+fit_multi_rfsrc <- function(dat.list, connect_list = NULL, var.wt = NULL,
+                            yprob = 1, ytry = NULL, seed = -10, ...) {
   .Deprecated("fit_multi_forest")
-  fit_multi_forest(...)
+  fit_multi_forest(
+    dat.list = dat.list,
+    connect_list = connect_list,
+    var.wt = var.wt,
+    yprob = yprob,
+    ytry = ytry,
+    seed = seed,
+    ...
+  )
 }

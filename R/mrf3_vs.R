@@ -91,6 +91,59 @@ mrf3_vs <- function(mod,
   dat_names <- names(new_dat)
   connect_list <- mod$connection
 
+  is_all_selected <- identical(select, "ALL")
+  normalize_weight_vec <- function(w) {
+    if (!isTRUE(normalized)) {
+      return(w)
+    }
+    norm_w <- sqrt(sum(w^2))
+    if (!is.finite(norm_w) || norm_w <= 0) {
+      return(w)
+    }
+    w / norm_w
+  }
+  keep_feature_names <- function(dat_block, weight_vec, block_name, allow_empty = FALSE) {
+    cols <- colnames(dat_block)
+    if (is.null(cols)) {
+      keep_idx <- which(weight_vec > 0)
+      if (!length(keep_idx) && !allow_empty && length(weight_vec)) {
+        keep_idx <- which.max(weight_vec)
+      }
+      keep_idx <- keep_idx[keep_idx <= ncol(dat_block)]
+      return(cols[keep_idx])
+    }
+
+    if (is.null(names(weight_vec))) {
+      keep_idx <- which(weight_vec > 0)
+      if (!length(keep_idx) && !allow_empty && length(weight_vec)) {
+        keep_idx <- which.max(weight_vec)
+      }
+      keep_idx <- keep_idx[keep_idx <= length(cols)]
+      return(cols[keep_idx])
+    }
+
+    keep_names <- intersect(names(weight_vec)[weight_vec > 0], cols)
+    if (!length(keep_names) && !allow_empty) {
+      best_name <- names(weight_vec)[which.max(weight_vec)]
+      if (!is.na(best_name) && nzchar(best_name) && best_name %in% cols) {
+        keep_names <- best_name
+      } else if (length(cols)) {
+        keep_names <- cols[[1]]
+      }
+    }
+    keep_names
+  }
+  subset_block <- function(dat_block, weight_vec, block_name, allow_empty = FALSE) {
+    if (!is_all_selected && !block_name %in% select) {
+      return(dat_block)
+    }
+    keep_names <- keep_feature_names(dat_block, weight_vec, block_name, allow_empty = allow_empty)
+    if (!length(keep_names)) {
+      return(dat_block[, 0, drop = FALSE])
+    }
+    dat_block[, keep_names, drop = FALSE]
+  }
+
   message("Variable selection..")
 
   if(method == "thres") {
@@ -201,10 +254,7 @@ mrf3_vs <- function(mod,
       }
       
       
-      if(normalized) {
-        w <- w/sqrt(sum(w^2))
-      }
-      w
+      normalize_weight_vec(w)
     }
   )
 
@@ -216,19 +266,7 @@ mrf3_vs <- function(mod,
     
   new_dat <- plyr::llply(
     dat_names,
-    .fun = function(i){
-      if(select != 'ALL') {
-        if(i %in% select) {
-          new_dat[[i]] <- new_dat[[i]][,weights_new[[i]] != 0]
-          new_dat[[i]]
-        } else {
-          new_dat[[i]]
-        }
-      } else {
-        new_dat[[i]] <- new_dat[[i]][,weights_new[[i]] != 0]
-        new_dat[[i]]
-      }
-    }
+    .fun = function(i) subset_block(new_dat[[i]], weights_new[[i]], i)
   )
   names(new_dat) <- dat_names
   m <- purrr::map(weights_new, ~.[.>0])
@@ -268,45 +306,44 @@ choose_thres2 <- function(weights, connection, new_dat, ytry, ntree, type, oob_i
   num <- seq(.8,3.1,by = 0.1)
   oob <- c()
   i <- 1
+  is_all_selected <- identical(select, "ALL")
+  apply_threshold <- function(block_name, w, threshold) {
+    if (!is_all_selected && !block_name %in% select) {
+      return(w)
+    }
+    w[w < threshold] <- 0
+    w[w > threshold] <- w[w > threshold] - threshold
+    w
+  }
+  subset_block <- function(dat_block, weight_vec, block_name) {
+    if (!is_all_selected && !block_name %in% select) {
+      return(dat_block)
+    }
+    cols <- colnames(dat_block)
+    if (is.null(names(weight_vec))) {
+      keep_idx <- which(weight_vec > 0)
+      if (!length(keep_idx) && length(weight_vec)) {
+        keep_idx <- which.max(weight_vec)
+      }
+      keep_idx <- keep_idx[keep_idx <= ncol(dat_block)]
+      return(dat_block[, keep_idx, drop = FALSE])
+    }
+    keep_names <- intersect(names(weight_vec)[weight_vec > 0], cols)
+    if (!length(keep_names) && length(cols)) {
+      best_name <- names(weight_vec)[which.max(weight_vec)]
+      keep_names <- if (!is.na(best_name) && best_name %in% cols) best_name else cols[[1]]
+    }
+    dat_block[, keep_names, drop = FALSE]
+  }
+
   while(i <= length(num)) {
     t <- num[i]
 
-    weights_new <- plyr::llply(
-      weights,
-      .fun = function(w) {
-        
-        thres <- t * sd(w)
-        if(select != 'ALL') {
-          
-          if(i %in% select) {
-            w[w < thres] <- 0
-            w[w > thres] <- w[w > thres] - thres
-          } 
-        } else {
-          w[w < thres] <- 0
-          w[w > thres] <- w[w > thres] - thres
-        }
-
-        w
-
-      }
-    )
+    weights_new <- purrr::imap(weights, ~apply_threshold(.y, .x, t * stats::sd(.x)))
     
     new_dat2 <- plyr::llply(
       names(new_dat),
-      .fun = function(i){
-        if(select != 'ALL') {
-          if(i %in% select) {
-            new_dat[[i]] <- new_dat[[i]][,weights_new[[i]] != 0]
-            new_dat[[i]]
-          } else {
-            new_dat[[i]]
-          }
-        } else {
-          new_dat[[i]] <- new_dat[[i]][,weights_new[[i]] != 0]
-          new_dat[[i]]
-        }
-      }
+      .fun = function(i) subset_block(new_dat[[i]], weights_new[[i]], i)
     )
     names(new_dat2) <- names(new_dat)
 

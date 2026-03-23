@@ -15,6 +15,6 @@
 The input object, invisibly.
 }
 \description{
-Print method for \code{mrf3_vs} output (vs class)
+Provides a concise overview of variable selection results.
 }
 \keyword{internal}

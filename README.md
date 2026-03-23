@@ -1,29 +1,45 @@
 # multiRF
 
-`multiRF` provides methods for multi-omics data integration using random forests
-and MRF-style weighting across modalities.
+**Fast multivariate random forests for multi-omics integration**
+
+`multiRF` is an R package for integrating matched multi-omics datasets with
+multivariate random forests. It fits directed forest models across omics
+blocks, learns sample-by-sample similarity from shared terminal-node structure,
+and decomposes the result into shared and omics-specific components for
+clustering, variable selection, and visualization.
+
+The package now uses a native C++ backend for multivariate regression,
+unsupervised forests, forest weights, proximity matrices, and enhanced
+proximity with sibling-leaf corrections. In practice, this gives a simpler
+installation path and a faster workflow than the old `randomForestSRC`-based
+pipeline while keeping the same overall modeling logic.
+
+Project website: [https://noblegasss.github.io/multiRF/](https://noblegasss.github.io/multiRF/)
 
 ## Installation
 
 ```r
-# after publishing to GitHub
 remotes::install_github("noblegasss/multiRF")
-
-# or install from a local checkout
-pak::pak(".")
 ```
 
-## Quick Start
+The package compiles from source and requires a C++17 toolchain:
+
+- macOS: Xcode Command Line Tools
+- Windows: Rtools
+- Linux: `g++` or `clang++`
+
+OpenMP is recommended for parallel tree construction. `randomForestSRC` is not
+required for the default workflow.
+
+## Quick start
 
 ```r
 library(multiRF)
-data("tcga_brca_data")  # loads tcga_brca and tcga_brca_clinical
+data("tcga_brca_data")
 
-# tcga_brca is a named list of matched omics matrices
 names(tcga_brca)
 #> [1] "gene"  "methy" "mirna"
 
-# run the main workflow on the bundled TCGA BRCA example
 fit <- mrf3(
   tcga_brca,
   k = 4,
@@ -33,17 +49,44 @@ fit <- mrf3(
   seed = 529
 )
 
-# inspect the fitted object
 summary(fit)
-table(fit$clusters)
-
-# extract top IMD variables from each omics block
-lapply(get_top_vars(fit, n = 10), head)
+table(get_clusters(fit))
+get_top_vars(fit, n = 10)
 ```
 
-`mrf3()` is the recommended user-facing entry point. It is a thin wrapper
-around `mrf3_fit()`, so advanced workflow arguments can still be passed through
-`...` when needed.
+`mrf3()` is the main user-facing entry point. It wraps the staged workflow in
+`mrf3_fit()` and forwards advanced arguments through `...`.
+
+## What it provides
+
+- `mrf3()`: end-to-end workflow for fitting, reconstruction, and clustering
+- `mrf3_fit()`: staged workflow with the full parameter surface exposed
+- `mrf3_vs()`: variable selection from IMD weights
+- `mrf3_stability()`: resampling-based cluster stability assessment
+- `pairwise_imd()`: variable-level co-occurrence network analysis
+- `plot_tsne()`, `plot_umap()`, `plot_network()`, `plot_km()`: downstream visualization helpers
+
+## Clustering modes
+
+```r
+fit_prox <- mrf3(
+  tcga_brca,
+  k = 4,
+  ntree = 100,
+  main_clustering = "proximity",
+  seed = 529
+)
+
+fit_enh <- mrf3(
+  tcga_brca,
+  k = 4,
+  ntree = 100,
+  main_clustering = "enhanced_proximity",
+  seed = 529
+)
+```
+
+## Full workflow example
 
 ```r
 fit_full <- mrf3(
@@ -60,38 +103,13 @@ fit_full <- mrf3(
 )
 ```
 
+## Bundled data
+
+- `tcga_brca`: TCGA BRCA example with `gene`, `methy`, and `mirna` blocks
+- `tcga_brca_clinical`: matched clinical annotations including subtype and survival information
+
 ## Citation
 
-If you use multiRF in your research, please cite:
+If you use `multiRF` in your research, please cite:
 
-> Zhang, W. et al. (2025). multiRF: An integrative framework for multi-omics data using random forests. *GigaScience*, 14, giaf148. [DOI:10.1093/gigascience/giaf148](https://academic.oup.com/gigascience/article/doi/10.1093/gigascience/giaf148/8374728)
-
-## Main Functions
-
-- `mrf3()`: recommended end-to-end user entry point. It wraps `mrf3_fit()` with simpler defaults for clustering, while still accepting advanced workflow arguments through `...`.
-- `mrf3_fit()`: full stage-based workflow when you want the complete parameter surface exposed explicitly.
-- `mrf3_vs()`: variable-selection stage that uses IMD weights to keep informative features, with optional model refitting.
-
-## Survival Example
-
-```r
-# align clinical rows to fitted cluster labels via sample IDs
-clinical_ids <- tcga_brca_clinical$sampleID
-clusters <- get_clusters(fit)
-common_ids <- intersect(names(clusters), clinical_ids)
-clinical_sub <- tcga_brca_clinical[match(common_ids, clinical_ids), , drop = FALSE]
-
-km <- plot_km(
-  test_var = clusters[common_ids],
-  time_var = "OS.time",
-  event_var = "OS",
-  pheno_mat = clinical_sub
-)
-
-km
-```
-
-## Bundled Data
-
-- `tcga_brca`: TCGA BRCA multi-omics example data with `gene`, `methy`, and `mirna` blocks.
-- `tcga_brca_clinical`: matched clinical metadata for the BRCA cohort.
+> Zhang, W. et al. (2025). An integrative multi-omics random forest framework for robust biomarker discovery. *GigaScience*, 14, giaf148. [doi:10.1093/gigascience/giaf148](https://academic.oup.com/gigascience/article/doi/10.1093/gigascience/giaf148/8374728)

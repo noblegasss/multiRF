@@ -11,7 +11,7 @@ cluster_imd(
   connect_list = NULL,
   min_cluster_size = 20L,
   ntree = NULL,
-  yprob = NULL,
+  ytry = NULL,
   parallel = TRUE,
   imd_normalized_weights = TRUE,
   run_vs = FALSE,
@@ -36,7 +36,7 @@ cluster_imd(
 
 \item{ntree}{Deprecated compatibility argument. Ignored in no-refit mode.}
 
-\item{yprob}{\code{yprob} used for per-cluster IMD. If \code{NULL}, reuses object setting.}
+\item{ytry}{\code{ytry} used for per-cluster IMD. If \code{NULL}, reuses object setting.}
 
 \item{parallel}{Logical; whether IMD computation inside each cluster is parallelized.}
 

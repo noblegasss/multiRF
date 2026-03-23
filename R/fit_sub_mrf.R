@@ -64,6 +64,8 @@ compute_oob_fw <- function(mod) {
 #'   small, as the asymmetric case leads to poor convergence (each
 #'   sub-model overfits to its response subset).
 #' @param ntree_per_sub  Number of trees per sub-MRF (default 50).
+#' @param mtry Number of candidate X variables per split. Passed through to
+#'   `fit_forest()`.
 #' @param ytry  Number of candidate Y variables per split. Default `0L` means
 #'   the C++ engine uses `min(qy, ceiling(p/3))`. A positive integer overrides this.
 #' @param min_response  Minimum number of response columns per sub-MRF.

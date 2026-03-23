@@ -1,7 +1,4 @@
 test_that("native classification fit returns class-compatible fields", {
-  skip_if_not_installed("pkgload")
-  pkgload::load_all(export_all = FALSE, helpers = FALSE, quiet = TRUE)
-
   fit_forest <- get("fit_forest", envir = asNamespace("multiRF"))
 
   set.seed(1)

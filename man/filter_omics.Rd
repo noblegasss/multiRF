@@ -11,7 +11,7 @@ filter_omics(
   top_n_by_type = NULL,
   top_n_manual = NULL,
   return_summary = TRUE,
-  verbose = T,
+  verbose = TRUE,
   ...
 )
 }

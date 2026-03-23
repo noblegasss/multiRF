@@ -8,7 +8,8 @@ mrf3_fit(
   dat.list,
   ntree = 500,
   scale = TRUE,
-  yprob = 0.5,
+  ytry = NULL,
+  samptype = c("swor", "swr"),
   connect_list = NULL,
   filter_mode = c("auto", "none", "manual"),
   filter_method = c("mad", "variance"),
@@ -19,11 +20,12 @@ mrf3_fit(
   shared_specific_args = list(),
   clustering_args = list(),
   run_imd = FALSE,
-  run_cluster_imd = NULL,
+  run_cluster_imd = FALSE,
   imd_args = list(),
   run_variable_selection = FALSE,
   variable_selection_args = list(),
   run_robust_clustering = FALSE,
+  robust_clustering_args = list(),
   cluster_imd_args = list(),
   top_v = NULL,
   model_top_v = NULL,
@@ -34,10 +36,13 @@ mrf3_fit(
   fused_top_v = NULL,
   fused_row_normalize = TRUE,
   fused_keep_ties = TRUE,
+  top_v_method = c("entropy_elbow", "neff"),
+  neff_quantile = 0.5,
   model_top_v_tune_args = list(),
   fused_top_v_tune_args = list(),
   return_data = FALSE,
   compact_output = FALSE,
+  verbose = TRUE,
   seed = 529,
   ...
 )
@@ -49,7 +54,10 @@ mrf3_fit(
 
 \item{scale}{Logical; whether to z-standardize each feature before fitting.}
 
-\item{yprob}{Proportion of response variables used for tuning \code{ytry}.}
+\item{ytry}{Number of response variables sampled per split. \code{NULL} delegates
+to the engine default.}
+
+\item{samptype}{Sampling scheme passed to forest fitting: \code{"swor"} or \code{"swr"}.}
 
 \item{connect_list}{Optional predefined connections (\code{list(c(response, predictor), ...)}).
 If \code{NULL}, directional connections are selected automatically by \code{find_connection()}
@@ -99,6 +107,11 @@ it is forced to \code{TRUE} when \code{run_robust_clustering = TRUE}, otherwise 
 \item{run_robust_clustering}{Logical; whether to run a robust clustering
 branch that first selects variables from IMD weights and then re-clusters.}
 
+\item{robust_clustering_args}{A named list of clustering arguments
+(\code{shared_k}, \code{specific_k}, etc.) specific to the robust clustering branch.
+By default, robust clustering inherits the actual \code{k} chosen in Stage 4;
+values in this list override those inherited defaults.}
+
 \item{cluster_imd_args}{A named list of additional arguments passed to
 \code{cluster_imd()} when \code{run_imd = TRUE}.
 By default, this function reuses cluster labels from
@@ -107,9 +120,9 @@ By default, this function reuses cluster labels from
 \item{top_v}{Optional unified top-v cutoff applied to both \code{model_top_v}
 and \code{fused_top_v}.}
 
-\item{model_top_v}{Optional integer. Model-level top-v cutoff used on each
-single-model forest weight matrix before fusion.
-If \code{NULL}, \code{tune_model_top_v()} is run automatically.}
+\item{model_top_v}{Model-level top-v cutoff used on each single-model
+forest weight matrix before fusion. Default \code{Inf} = no truncation (use all
+weights). Set to \code{NULL} to auto-tune via \code{tune_model_top_v()}.}
 
 \item{recon_fusion}{Reconstruction fusion mode passed to \code{get_reconstr_matrix()}:
 \code{"weighted"} (default) or \code{"uniform"}.}
@@ -120,13 +133,17 @@ If \code{NULL}, \code{tune_model_top_v()} is run automatically.}
 
 \item{fallback_uniform}{Logical; whether weighted reconstruction falls back to uniform averaging when scores are unavailable.}
 
-\item{fused_top_v}{Optional integer. If set, apply row-wise top-v truncation to fused weights.
-If \code{NULL}, \code{tune_fused_top_v()} is run automatically. If \code{FALSE}, skip
-fused-top-v tuning/truncation.}
+\item{fused_top_v}{Row-wise top-v truncation for fused weights. Default \code{Inf}
+= no truncation. Set to \code{NULL} to auto-tune, \code{FALSE} to skip entirely.}
 
 \item{fused_row_normalize}{Logical; whether to row-normalize fused weights after optional truncation.}
 
 \item{fused_keep_ties}{Logical; whether fused top-v truncation keeps ties at cutoff.}
+
+\item{top_v_method}{Strategy used when auto-selecting \code{top_v}.}
+
+\item{neff_quantile}{Quantile of effective neighborhood size used by the
+\code{"neff"} top-v rule.}
 
 \item{model_top_v_tune_args}{A named list of additional arguments passed to
 \code{tune_model_top_v()} (e.g., \code{tmin}, \code{by}, \code{k}).
@@ -142,6 +159,8 @@ Workflow always uses \code{object = "entropy_elbow"}.}
 output for lower memory usage (for example fitted model copies in robust
 clustering and full \code{vs_fit} object). Useful when keeping multiple
 \code{mrf3_fit} objects in memory.}
+
+\item{verbose}{Logical; whether to print stage-level progress messages.}
 
 \item{seed}{Random seed.}
 

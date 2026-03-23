@@ -1,9 +1,9 @@
 #' Print method for `mrf3` objects
 #'
-#' @method print mrf3
 #' Displays a compact summary of fitted multiRF models including
 #' block names, connection structure, weight statistics, and class info.
 #'
+#' @method print mrf3
 #' @param x An `mrf3` object.
 #' @param max_weights Maximum number of top variables to display per block.
 #' @param ... Additional arguments (unused).
@@ -70,9 +70,9 @@ print.mrf3 <- function(x, max_weights = 5L, ...) {
 
 #' Print method for `mrf3_vs` output (vs class)
 #'
-#' @method print vs
 #' Provides a concise overview of variable selection results.
 #'
+#' @method print vs
 #' @param x An object with class `c("mrf3", "vs")` returned by `mrf3_vs()`.
 #' @param ... Additional arguments passed to `print.mrf3()`.
 #'

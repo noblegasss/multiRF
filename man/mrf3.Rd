@@ -9,6 +9,7 @@ mrf3(
   k = NULL,
   ntree = 500,
   top_v = NULL,
+  samptype = c("swor", "swr"),
   main_clustering = c("similarity", "proximity", "enhanced_proximity"),
   filter_mode = c("none", "auto", "manual"),
   seed = 529,
@@ -25,6 +26,8 @@ If \code{NULL}, \code{k} is tuned in downstream clustering routines.}
 
 \item{top_v}{Optional unified top-v cutoff.
 If set, applies to both \code{model_top_v} and \code{fused_top_v}.}
+
+\item{samptype}{Sampling scheme passed through to \code{mrf3_fit()}.}
 
 \item{main_clustering}{Global clustering strategy applied consistently to
 shared, specific, and robust branches: \code{"similarity"} (default),

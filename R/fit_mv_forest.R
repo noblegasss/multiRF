@@ -22,37 +22,6 @@ resolve_param <- function(value, p, default, name = "param") {
   stop("`", name, "` must be NULL, an integer, or a formula string like \"sqrt(p)\" or \"p/3\".")
 }
 
-#' Fit a multivariate regression forest (native C++ engine)
-#'
-#' Drop-in replacement for `fit_forest()` when `type = "regression"`.
-#' Returns an object with the same interface (`$forest.wt`, `$proximity`,
-#' `$membership`, `$xvar`, `$yvar`, `$ntree`, `$xvar.names`) so downstream
-#' code in multiRF works without changes.
-#'
-#' @param X Data frame or matrix of predictor features (n x px).
-#' @param Y Data frame or matrix of response features (n x qy).
-#' @param ntree Number of trees.
-#' @param mtry Number of candidate X variables per split. Accepts an integer,
-#'   a formula string (`"sqrt(p)"`, `"p/3"`, `"p/2"`), or `NULL` for the
-#'   default (`ceiling(px/3)` for regression, `ceiling(sqrt(px))` for
-#'   classification). In formulas, `p` is the number of predictor columns.
-#' @param ytry Number of candidate Y variables per split. Accepts an integer,
-#'   a formula string (`"sqrt(p)"`, `"p/3"`), or `NULL` for the default
-#'   (`ceiling(qy/3)`). In formulas, `p` is the number of Y columns.
-#' @param nodesize Minimum terminal node size. Default: 5.
-#' @param max_depth Maximum tree depth (0 = unlimited). Default: 0.
-#' @param seed Random seed.
-#' @return A list compatible with rfsrc output, containing:
-#'   \describe{
-#'     \item{forest.wt}{n x n forest weight matrix}
-#'     \item{proximity}{n x n proximity matrix}
-#'     \item{membership}{n x ntree terminal node membership}
-#'     \item{xvar}{predictor data frame}
-#'     \item{yvar}{response data frame}
-#'     \item{xvar.names}{character vector of predictor names}
-#'     \item{ntree}{number of trees}
-#'     \item{tree_info}{per-tree structure for IMD}
-#'   }
 #' Fit an unsupervised random forest (native C++ engine)
 #'
 #' Emulates rfsrc unsupervised mode: at each tree, randomly partition the
@@ -63,8 +32,15 @@ resolve_param <- function(value, p, default, name = "param") {
 #' @param X Data frame or matrix of features (n x p).
 #' @param ntree Number of trees.
 #' @param ytry Number of candidate pseudo-Y columns per split. Default `NULL` = 15.
+#' @param proximity Proximity output mode.
 #' @param nodesize Minimum terminal node size.
 #' @param max_depth Maximum tree depth (0 = unlimited).
+#' @param samptype Sampling scheme: `"swor"` or `"swr"`.
+#' @param nthread Number of OpenMP threads used by the native engine.
+#' @param enhanced_prox Logical; whether to compute enhanced proximity.
+#' @param sibling_gamma Strength of the sibling-leaf correction used by
+#'   enhanced proximity.
+#' @param leaf_embed_dim Embedding dimension used by enhanced proximity.
 #' @param seed Random seed.
 #' @return A list with `forest.wt`, `proximity`, `membership`, `xvar`,
 #'   `xvar.names`, `ntree`, and `engine = "multiRF"`.
@@ -158,6 +134,15 @@ fit_mv_forest_unsup <- function(X, ntree = 500L, ytry = NULL,
   eprox_out <- if (isTRUE(enhanced_prox) && !is.null(res$enhanced_prox) &&
                     nrow(res$enhanced_prox) == n) res$enhanced_prox else NULL
 
+  # IMD-X weights (variable-level importance from split scores)
+  imd_x <- as.numeric(res$imd_x)
+  names(imd_x) <- all_names
+  imd_weights <- list(X = imd_x)
+
+  imd_x_pt <- res$imd_x_per_tree  # p x ntree matrix
+  rownames(imd_x_pt) <- all_names
+  imd_weights_per_tree <- list(X = imd_x_pt)
+
   out <- list(
     forest.wt  = res$forest.wt,
     proximity  = res$proximity,
@@ -169,13 +154,55 @@ fit_mv_forest_unsup <- function(X, ntree = 500L, ytry = NULL,
     ntree      = as.integer(ntree),
     tree_info  = tree_info,
     n          = n,
-    engine     = "multiRF"
+    engine     = "multiRF",
+    imd_weights = imd_weights,
+    imd_weights_per_tree = imd_weights_per_tree
   )
   out$forest <- list(nativeArray = NULL)
   out$node.stats <- NULL
   out
 }
 
+#' Fit a multivariate regression forest (native C++ engine)
+#'
+#' Drop-in replacement for `fit_forest()` when `type = "regression"`.
+#' Returns an object with the same interface (`$forest.wt`, `$proximity`,
+#' `$membership`, `$xvar`, `$yvar`, `$ntree`, `$xvar.names`) so downstream
+#' code in multiRF works without changes.
+#'
+#' @param X Data frame or matrix of predictor features (n x px).
+#' @param Y Data frame or matrix of response features (n x qy).
+#' @param ntree Number of trees.
+#' @param mtry Number of candidate X variables per split. Accepts an integer,
+#'   a formula string (`"sqrt(p)"`, `"p/3"`, `"p/2"`), or `NULL` for the
+#'   default (`ceiling(px/3)` for regression, `ceiling(sqrt(px))` for
+#'   classification). In formulas, `p` is the number of predictor columns.
+#' @param ytry Number of candidate Y variables per split. Accepts an integer,
+#'   a formula string (`"sqrt(p)"`, `"p/3"`), or `NULL` for the default
+#'   (`ceiling(qy/3)`). In formulas, `p` is the number of Y columns.
+#' @param nsplit Number of candidate numeric cutpoints per split variable.
+#' @param proximity Proximity output mode.
+#' @param nodesize Minimum terminal node size. Default: 5.
+#' @param max_depth Maximum tree depth (0 = unlimited). Default: 0.
+#' @param samptype Sampling scheme: `"swor"` or `"swr"`.
+#' @param nthread Number of OpenMP threads used by the native engine.
+#' @param enhanced_prox Logical; whether to compute enhanced proximity.
+#' @param sibling_gamma Strength of the sibling-leaf correction used by
+#'   enhanced proximity.
+#' @param leaf_embed_dim Embedding dimension used by enhanced proximity.
+#' @param seed Random seed.
+#' @return A list compatible with rfsrc output, containing:
+#'   \describe{
+#'     \item{forest.wt}{n x n forest weight matrix}
+#'     \item{proximity}{n x n proximity matrix}
+#'     \item{membership}{n x ntree terminal node membership}
+#'     \item{xvar}{predictor data frame}
+#'     \item{yvar}{response data frame}
+#'     \item{xvar.names}{character vector of predictor names}
+#'     \item{ntree}{number of trees}
+#'     \item{tree_info}{per-tree structure for IMD}
+#'   }
+#' @keywords internal
 fit_mv_forest <- function(X, Y, ntree = 500L,
                            mtry = NULL, ytry = NULL, nsplit = 10L,
                            proximity = c("all", "inbag", "oob", "none"),

@@ -18,6 +18,8 @@
 #' - `specific$residual_mod`: unsupervised RF models fitted on residual matrices.
 #' - `specific$W`: specific residual weights from residual RF models
 #'   after adjusted/truncate/row-sum-normalize.
+#' - `specific$imd`: named list of per-block variable-level IMD weights
+#'   (named numeric vectors) from unsupervised RF on residuals.
 get_shared_specific_weights <- function(dat.list,
                                         recon,
                                         specific_top_v = NULL,
@@ -55,8 +57,9 @@ get_shared_specific_weights <- function(dat.list,
   names(predicted) <- names(residual) <- dat_names
 
   specific_W <- vector("list", length(dat_names))
+  specific_imd <- vector("list", length(dat_names))
   residual_mod <- vector("list", length(dat_names))
-  names(specific_W) <- names(residual_mod) <- dat_names
+  names(specific_W) <- names(specific_imd) <- names(residual_mod) <- dat_names
 
   for (d in dat_names) {
     X <- as.matrix(dat.list[[d]])
@@ -120,6 +123,14 @@ get_shared_specific_weights <- function(dat.list,
       zero_diag = TRUE,
       keep_ties = specific_keep_ties
     )
+
+    # Extract variable-level IMD weights from unsupervised RF (X-side only)
+    if (!is.null(r_mod$imd_weights) && !is.null(r_mod$imd_weights$X)) {
+      specific_imd[[d]] <- r_mod$imd_weights$X
+    } else {
+      # Fallback: uniform weights if IMD not available (e.g. rfsrc engine)
+      specific_imd[[d]] <- setNames(rep(1.0 / ncol(X), ncol(X)), colnames(X))
+    }
   }
 
   list(
@@ -131,7 +142,8 @@ get_shared_specific_weights <- function(dat.list,
       residual = residual,
       predicted = predicted,
       residual_mod = residual_mod,
-      W = specific_W
+      W = specific_W,
+      imd = specific_imd
     )
   )
 }

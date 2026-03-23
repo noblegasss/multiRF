@@ -47,7 +47,7 @@ struct Node {
   std::vector<double> imd_y_stats;
   // IMD: which X variable was used to split (same as split_var but
   // stored here for clarity; the importance goes to this X var)
-  double imd_x_score;  // total split score at this node
+  double imd_x_score = 0.0;  // total split score at this node
 };
 
 // Lightweight column-major matrix view backed by raw memory.
@@ -1148,6 +1148,7 @@ static std::vector<Node> build_tree_unsup(
 
       node.split_var = bv;
       node.split_val = bval;
+      node.imd_x_score = bscore;  // IMD: store split score for X importance
 
       int left_id = (int)nodes.size();
       Node left_node;
@@ -1810,12 +1811,11 @@ List fit_mv_forest_cpp(NumericMatrix X, NumericMatrix Y,
   if (norm_x > 0) for (int j = 0; j < px; j++) imd_x[j] /= norm_x;
   if (norm_y > 0) for (int j = 0; j < qy; j++) imd_y[j] /= norm_y;
 
-  // Free heavy per-node data no longer needed (samples + imd_y_stats)
-  // This can reclaim ~80 MB for 500 trees.
+  // Free heavy per-node data no longer needed (samples only).
+  // Keep imd_x_score and imd_y_stats for cluster-weighted IMD.
   for (int t = 0; t < ntree; t++) {
     for (auto& node : tree_results[t].nodes) {
       std::vector<int>().swap(node.samples);
-      std::vector<double>().swap(node.imd_y_stats);
     }
   }
 
@@ -1835,6 +1835,7 @@ List fit_mv_forest_cpp(NumericMatrix X, NumericMatrix Y,
     IntegerVector t_depth(n_nodes);
     IntegerVector t_nodesize(n_nodes);
     LogicalVector t_is_leaf(n_nodes);
+    NumericVector t_imd_x_score(n_nodes);
 
     for (int ni = 0; ni < n_nodes; ni++) {
       t_split_var[ni] = tree_results[t].nodes[ni].split_var;
@@ -1844,6 +1845,25 @@ List fit_mv_forest_cpp(NumericMatrix X, NumericMatrix Y,
       t_depth[ni] = tree_results[t].nodes[ni].depth;
       t_nodesize[ni] = tree_results[t].nodes[ni].nodesize;
       t_is_leaf[ni] = (tree_results[t].nodes[ni].split_var < 0);
+      t_imd_x_score[ni] = tree_results[t].nodes[ni].imd_x_score;
+    }
+
+    // Per-node Y IMD stats: n_internal_nodes x qy matrix (only for internal nodes)
+    int n_internal = 0;
+    for (int ni = 0; ni < n_nodes; ni++) {
+      if (tree_results[t].nodes[ni].split_var >= 0) n_internal++;
+    }
+    NumericMatrix t_imd_y_stats(n_internal > 0 ? qy : 0, n_internal);
+    {
+      int col = 0;
+      for (int ni = 0; ni < n_nodes; ni++) {
+        if (tree_results[t].nodes[ni].split_var < 0) continue;
+        const auto& ys = tree_results[t].nodes[ni].imd_y_stats;
+        for (int j = 0; j < qy && j < (int)ys.size(); j++) {
+          t_imd_y_stats(j, col) = ys[j];
+        }
+        col++;
+      }
     }
 
     tree_info_list[t] = List::create(
@@ -1853,7 +1873,9 @@ List fit_mv_forest_cpp(NumericMatrix X, NumericMatrix Y,
       Named("right") = t_right,
       Named("depth") = t_depth,
       Named("nodesize") = t_nodesize,
-      Named("is_leaf") = t_is_leaf
+      Named("is_leaf") = t_is_leaf,
+      Named("imd_x_score") = t_imd_x_score,
+      Named("imd_y_stats") = t_imd_y_stats
     );
   }
 
@@ -2215,6 +2237,39 @@ List fit_mv_forest_unsup_cpp(NumericMatrix data,
     }
   }
 
+  // ──── IMD-X aggregation (unsupervised: X-side only) ────
+  std::vector<double> imd_x_sum(p, 0.0);
+  std::vector<int>    imd_x_cnt(p, 0);
+  NumericMatrix imd_x_per_tree(p, ntree);
+
+  for (int t = 0; t < ntree; t++) {
+    std::vector<double> tx_sum(p, 0.0);
+    std::vector<int>    tx_cnt(p, 0);
+
+    for (const auto& node : tree_results[t].nodes) {
+      if (node.split_var < 0) continue;
+      int xv = node.split_var;
+      tx_sum[xv] += node.imd_x_score;
+      tx_cnt[xv]++;
+      imd_x_sum[xv] += node.imd_x_score;
+      imd_x_cnt[xv]++;
+    }
+
+    for (int j = 0; j < p; j++) {
+      imd_x_per_tree(j, t) = (tx_cnt[j] > 0) ? tx_sum[j] / tx_cnt[j] : 0.0;
+    }
+  }
+
+  // Global averages + L2 normalize
+  NumericVector imd_x(p);
+  for (int j = 0; j < p; j++) {
+    imd_x[j] = (imd_x_cnt[j] > 0) ? imd_x_sum[j] / imd_x_cnt[j] : 0.0;
+  }
+  double norm_x = 0.0;
+  for (int j = 0; j < p; j++) norm_x += imd_x[j] * imd_x[j];
+  norm_x = std::sqrt(norm_x);
+  if (norm_x > 0) for (int j = 0; j < p; j++) imd_x[j] /= norm_x;
+
   List tree_info_list(ntree);
   for (int t = 0; t < ntree; t++) {
     for (int i = 0; i < n; i++) {
@@ -2230,6 +2285,7 @@ List fit_mv_forest_unsup_cpp(NumericMatrix data,
     IntegerVector t_depth(n_nodes);
     IntegerVector t_nodesize(n_nodes);
     LogicalVector t_is_leaf(n_nodes);
+    NumericVector t_imd_x_score(n_nodes);
 
     // split_var is already a global column index (no remap needed)
     for (int ni = 0; ni < n_nodes; ni++) {
@@ -2241,6 +2297,7 @@ List fit_mv_forest_unsup_cpp(NumericMatrix data,
       t_depth[ni] = tree_results[t].nodes[ni].depth;
       t_nodesize[ni] = tree_results[t].nodes[ni].nodesize;
       t_is_leaf[ni] = (sv < 0);
+      t_imd_x_score[ni] = tree_results[t].nodes[ni].imd_x_score;
     }
 
     tree_info_list[t] = List::create(
@@ -2250,7 +2307,8 @@ List fit_mv_forest_unsup_cpp(NumericMatrix data,
       Named("right") = t_right,
       Named("depth") = t_depth,
       Named("nodesize") = t_nodesize,
-      Named("is_leaf") = t_is_leaf
+      Named("is_leaf") = t_is_leaf,
+      Named("imd_x_score") = t_imd_x_score
     );
   }
 
@@ -2262,6 +2320,8 @@ List fit_mv_forest_unsup_cpp(NumericMatrix data,
     Named("ntree") = ntree,
     Named("n") = n,
     Named("p") = p,
-    Named("tree_info") = tree_info_list
+    Named("tree_info") = tree_info_list,
+    Named("imd_x") = imd_x,
+    Named("imd_x_per_tree") = imd_x_per_tree
   );
 }

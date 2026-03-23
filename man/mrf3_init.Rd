@@ -7,17 +7,19 @@
 mrf3_init(
   dat.list,
   ntree = 300,
-  scale = T,
-  yprob = 0.5,
+  scale = TRUE,
+  ytry = NULL,
+  samptype = c("swor", "swr"),
   connect_list = NULL,
   filter_mode = c("auto", "none", "manual"),
   filter_method = c("mad", "variance"),
   top_n_by_type = NULL,
   top_n_manual = NULL,
-  filter_verbose = T,
-  return_data = F,
+  filter_verbose = TRUE,
+  return_data = FALSE,
   sub_mrf = FALSE,
   sub_mrf_args = list(),
+  verbose = TRUE,
   seed = 529,
   ...
 )
@@ -29,7 +31,10 @@ mrf3_init(
 
 \item{scale}{Whether to z-standardize each feature. Default is TRUE.}
 
-\item{yprob}{Probability of response features being selected in each node split. Default is 0.5.}
+\item{ytry}{Number of response variables sampled at each split. \code{NULL}
+delegates to the engine default.}
+
+\item{samptype}{Sampling scheme passed to forest fitting: \code{"swor"} or \code{"swr"}.}
 
 \item{connect_list}{Optional pre-defined connection list. If \code{NULL}, the
 function fits all directed pairwise models first, then uses \code{find_connection()}
@@ -50,7 +55,7 @@ to select one direction per omics pair.}
 \item{return_data}{Whether to return the data list. Default is FALSE.}
 
 \item{sub_mrf}{Logical; if \code{TRUE}, uses \code{fit_sub_multi_rfsrc()} instead of
-\code{fit_multi_rfsrc()} for the final model fit.  This sub-samples response and
+\code{fit_multi_forest()} for the final model fit.  This sub-samples response and
 predictor features per connection, fits smaller MRFs, and averages the
 resulting n x n matrices.  Useful when p is large.  Default is \code{FALSE}.}
 
@@ -59,7 +64,9 @@ resulting n x n matrices.  Useful when p is large.  Default is \code{FALSE}.}
 \code{n_sub} (number of replicates, default 15), \code{frac_response} (default 0.2),
 \code{frac_predictor} (default 0.2), \code{ntree_per_sub} (default 25),
 \code{min_response_for_sub} (default 500; blocks smaller than this use all features),
-\code{min_predictor_for_sub} (default 500), \code{yprob} (default 0.5).}
+\code{min_predictor_for_sub} (default 500), \code{ytry} (default 0.5).}
+
+\item{verbose}{Logical; whether to print progress messages.}
 
 \item{seed}{Random seed.}
 

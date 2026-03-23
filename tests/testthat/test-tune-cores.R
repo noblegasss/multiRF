@@ -1,7 +1,4 @@
 test_that("sanitize_mc_cores always returns a valid positive core count", {
-  skip_if_not_installed("pkgload")
-  pkgload::load_all(export_all = FALSE, helpers = FALSE, quiet = TRUE)
-
   sanitize_mc_cores <- get("sanitize_mc_cores", envir = asNamespace("multiRF"))
 
   expect_gte(sanitize_mc_cores(NULL), 1L)

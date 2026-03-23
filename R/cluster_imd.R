@@ -173,46 +173,103 @@ cluster_imd <- function(x,
 
     dat_sub <- lapply(base$dat, function(d) d[idx, , drop = FALSE])
 
-    mod_sub <- tryCatch({
-      if (use_refit) {
-        fit_multi_forest(
-          dat.list = dat_sub,
-          connect_list = conn_global,
-          ntree = if (is.null(base$ntree)) 200L else base$ntree,
-          ytry = ytry_use,
-          seed = seed + i - 1L
-        )
-      } else {
-        out <- lapply(seq_along(conn_global), function(j) {
-          subset_model_for_cluster(mod_template[[j]], conn_global[[j]], dat_sub, idx)
+    # ── Fast path: cluster-weighted IMD from pre-computed per-node scores ──
+    # Uses tree_info$imd_x_score + membership to weight each node's
+    # contribution by the fraction of this cluster's samples passing through it.
+    has_node_imd <- all(vapply(mod_template, function(m) {
+      !is.null(m$tree_info) &&
+        !is.null(m$tree_info[[1]]$imd_x_score)
+    }, logical(1)))
+
+    if (has_node_imd && !use_refit) {
+      # Compute cluster-weighted IMD for this cluster across all connections
+      cluster_labels <- setNames(rep("other", length(cluster)), names(cluster))
+      cluster_labels[idx] <- lb
+
+      per_conn_imd <- tryCatch({
+        lapply(seq_along(conn_global), function(j) {
+          cw <- cluster_weighted_imd(
+            mod = mod_template[[j]],
+            cluster = cluster_labels,
+            normalized = FALSE  # normalize after averaging across connections
+          )
+          cw[[lb]]  # list(X = vec, Y = vec)
         })
-        names(out) <- conn_names
-        out
+      }, error = function(e) e)
+
+      if (inherits(per_conn_imd, "error")) {
+        summary_tb$status[i] <- "error"
+        summary_tb$message[i] <- paste0("Cluster IMD failed: ", conditionMessage(per_conn_imd))
+        next
       }
-    }, error = function(e) e)
 
-    if (inherits(mod_sub, "error")) {
-      summary_tb$status[i] <- "error"
-      summary_tb$message[i] <- conditionMessage(mod_sub)
-      next
-    }
+      # Aggregate across connections: average by block
+      block_names <- names(base$dat)
+      weight_list <- lapply(block_names, function(bn) {
+        ww <- list()
+        for (j in seq_along(conn_global)) {
+          conn <- conn_global[[j]]
+          m_name_sep <- rev(as.character(conn))
+          if (m_name_sep[1] == bn) ww <- c(ww, list(per_conn_imd[[j]]$X))
+          if (length(m_name_sep) > 1 && m_name_sep[2] == bn) ww <- c(ww, list(per_conn_imd[[j]]$Y))
+        }
+        if (length(ww) == 0L) return(setNames(numeric(ncol(base$dat[[bn]])), colnames(base$dat[[bn]])))
+        w_out <- Reduce("+", ww) / length(ww)
+        if (imd_normalized_weights) {
+          denom <- sqrt(sum(w_out^2))
+          if (is.finite(denom) && denom > 0) w_out <- w_out / denom
+        }
+        w_out
+      })
+      names(weight_list) <- block_names
+      imd_out <- list(weight_list = weight_list, weight_list_init = NULL, net = NULL)
 
-    imd_call <- c(
-      list(
-        mod_list = mod_sub,
-        dat.list = dat_sub,
-        ytry = ytry_use,
-        parallel = parallel,
-        normalized = imd_normalized_weights,
-        seed = seed + i - 1L
-      ),
-      imd_args
-    )
-    imd_out <- tryCatch(do.call(get_multi_weights, imd_call), error = function(e) e)
-    if (inherits(imd_out, "error")) {
-      summary_tb$status[i] <- "error"
-      summary_tb$message[i] <- paste0("IMD failed: ", conditionMessage(imd_out))
-      next
+    } else {
+      # ── Slow path: subset model + recompute via get_multi_weights ──
+      mod_sub <- tryCatch({
+        if (use_refit) {
+          fit_multi_forest(
+            dat.list = dat_sub,
+            connect_list = conn_global,
+            ntree = if (is.null(base$ntree)) 200L else base$ntree,
+            ytry = ytry_use,
+            seed = seed + i - 1L
+          )
+        } else {
+          out <- lapply(seq_along(conn_global), function(j) {
+            ms <- subset_model_for_cluster(mod_template[[j]], conn_global[[j]], dat_sub, idx)
+            ms$imd_weights <- NULL           # don't use global IMD
+            ms$imd_weights_per_tree <- NULL
+            ms
+          })
+          names(out) <- conn_names
+          out
+        }
+      }, error = function(e) e)
+
+      if (inherits(mod_sub, "error")) {
+        summary_tb$status[i] <- "error"
+        summary_tb$message[i] <- conditionMessage(mod_sub)
+        next
+      }
+
+      imd_call <- c(
+        list(
+          mod_list = mod_sub,
+          dat.list = dat_sub,
+          ytry = ytry_use,
+          parallel = parallel,
+          normalized = imd_normalized_weights,
+          seed = seed + i - 1L
+        ),
+        imd_args
+      )
+      imd_out <- tryCatch(do.call(get_multi_weights, imd_call), error = function(e) e)
+      if (inherits(imd_out, "error")) {
+        summary_tb$status[i] <- "error"
+        summary_tb$message[i] <- paste0("IMD failed: ", conditionMessage(imd_out))
+        next
+      }
     }
 
     mrf_sub <- structure(

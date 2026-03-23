@@ -3,7 +3,9 @@
 #' @param dat.list A named list of omics matrices (samples in rows, features in columns).
 #' @param ntree Number of trees for RF fitting.
 #' @param scale Logical; whether to z-standardize each feature before fitting.
-#' @param ytry Proportion of response variables used for tuning `ytry`.
+#' @param ytry Number of response variables sampled per split. `NULL` delegates
+#'   to the engine default.
+#' @param samptype Sampling scheme passed to forest fitting: `"swor"` or `"swr"`.
 #' @param connect_list Optional predefined connections (`list(c(response, predictor), ...)`).
 #' If `NULL`, directional connections are selected automatically by `find_connection()`
 #' from fitted forests.
@@ -59,6 +61,9 @@
 #' = no truncation. Set to `NULL` to auto-tune, `FALSE` to skip entirely.
 #' @param fused_row_normalize Logical; whether to row-normalize fused weights after optional truncation.
 #' @param fused_keep_ties Logical; whether fused top-v truncation keeps ties at cutoff.
+#' @param top_v_method Strategy used when auto-selecting `top_v`.
+#' @param neff_quantile Quantile of effective neighborhood size used by the
+#'   `"neff"` top-v rule.
 #' @param model_top_v_tune_args A named list of additional arguments passed to
 #' `tune_model_top_v()` (e.g., `tmin`, `by`, `k`).
 #' Workflow always uses `object = "entropy_elbow"`.
@@ -70,6 +75,7 @@
 #' output for lower memory usage (for example fitted model copies in robust
 #' clustering and full `vs_fit` object). Useful when keeping multiple
 #' `mrf3_fit` objects in memory.
+#' @param verbose Logical; whether to print stage-level progress messages.
 #' @param seed Random seed.
 #' @param ... Additional arguments passed to `mrf3_init()`.
 #'
