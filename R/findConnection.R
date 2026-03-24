@@ -1,26 +1,22 @@
 #' Find optimal directional connections from fitted RF models
 #'
 #' Scores each directional RF model using modularity of the raw forest weight
-#' matrix and OOB normalized MSE.  A two-step selection filters connections:
-#' first an absolute quality gate removes clearly uninformative connections,
-#' then rank-sum selection picks the best among survivors.
+#' matrix and OOB normalized MSE.  Connections are selected by k-means (k=2)
+#' clustering on quality_score = modularity - oob_nmse: only the good cluster
+#' is retained when a clear gap exists.  Within the good cluster,
+#' \code{select_one_per_pair} keeps at most one direction per omics pair.
 #'
 #' @param mod.list A named list of fitted RF models. Model names must follow
 #' `response_predictor` convention.
 #' @param return_score Logical; whether to return the directional score matrix.
-#' @param drop_bottom_q Proportion of models to drop based on quality rank-sum.
-#' Must be in `[0, 1)`. Default is `0.2`.
 #' @param select_one_per_pair Logical; whether to keep at most one direction per
-#' omics pair among quality-filtered models.
-#' @param quality_gate Character or NULL. Method for absolute quality filtering
-#' before rank-sum selection. \code{"adaptive"} uses k-means (k=2) on
-#' quality_score to separate good and bad connections when a clear gap exists.
-#' \code{NULL} disables absolute filtering (backward compatible).
-#' Default is \code{"adaptive"}.
-#' @param min_modularity Numeric or NULL. If set, connections with modularity
-#' below this value are excluded. Applied in addition to \code{quality_gate}.
-#' @param max_oob_nmse Numeric or NULL. If set, connections with OOB nMSE
-#' above this value are excluded. Applied in addition to \code{quality_gate}.
+#' omics pair among selected models.
+#' @param gap_threshold Numeric; minimum gap / pooled_SD ratio required for
+#' k-means to separate good and bad clusters.  Default is \code{1.0}.
+#' @param min_modularity Numeric; absolute modularity threshold used as
+#' fallback when k-means cannot separate clusters (or when fewer than 4
+#' models exist).  Connections with modularity below this value are dropped.
+#' Default is \code{0.3}.
 #' @param ... Additional arguments (currently ignored).
 #'
 #' @return A character vector of selected model names (`response_predictor`).
@@ -31,11 +27,9 @@
 # ---------------------------------------------------------------------------------
 find_connection <- function(mod.list,
                             return_score = FALSE,
-                            drop_bottom_q = 0.2,
                             select_one_per_pair = TRUE,
-                            quality_gate = "adaptive",
-                            min_modularity = NULL,
-                            max_oob_nmse = NULL,
+                            gap_threshold = 1.0,
+                            min_modularity = 0.3,
                             ...){
 
   if (inherits(mod.list, "mrf3")) {
@@ -47,10 +41,6 @@ find_connection <- function(mod.list,
   }
   if (is.null(names(mod.list)) || any(names(mod.list) == "")) {
     stop("`mod.list` must be named using `response_predictor` format.")
-  }
-  if (!is.numeric(drop_bottom_q) || length(drop_bottom_q) != 1L ||
-      !is.finite(drop_bottom_q) || drop_bottom_q < 0 || drop_bottom_q >= 1) {
-    stop("`drop_bottom_q` must be a single numeric in [0, 1).")
   }
 
   model_names <- names(mod.list)
@@ -79,86 +69,72 @@ find_connection <- function(mod.list,
   quality_tbl$quality_score   <- quality_tbl$modularity - quality_tbl$oob_nmse
   quality_tbl$rank_sum        <- quality_tbl$rank_modularity + quality_tbl$rank_oob
 
-  # --- Step 1: Absolute quality gate ---
-  # Filter out connections that are clearly uninformative before rank-based selection.
-  quality_tbl$pass_gate <- TRUE
   n_models <- nrow(quality_tbl)
 
-  # Hard thresholds (if specified)
-  if (!is.null(min_modularity)) {
-    quality_tbl$pass_gate <- quality_tbl$pass_gate & (quality_tbl$modularity >= min_modularity)
-  }
-  if (!is.null(max_oob_nmse)) {
-    quality_tbl$pass_gate <- quality_tbl$pass_gate & (quality_tbl$oob_nmse <= max_oob_nmse)
-  }
+  # --- K-means selection on quality_score ---
+  # k-means(k=2) splits connections into good and bad clusters.
+  # If gap is significant: keep only good cluster.
+  # If gap is NOT significant: fallback to modularity >= min_modularity.
+  quality_tbl$selected <- FALSE
 
-  # Adaptive gate: k-means(k=2) on quality_score
-  if (!is.null(quality_gate) && identical(quality_gate, "adaptive") && n_models >= 4L) {
+  if (n_models >= 4L) {
     qs <- quality_tbl$quality_score
+    km_separated <- FALSE
     if (length(unique(qs)) >= 2L) {
       km <- stats::kmeans(qs, centers = 2L, nstart = 10L)
-      # Identify the "good" cluster (higher quality_score = higher mean)
       good_cluster <- which.max(km$centers[, 1])
       bad_cluster  <- which.min(km$centers[, 1])
       gap <- km$centers[good_cluster, 1] - km$centers[bad_cluster, 1]
-      # Only apply gate if there's a meaningful gap between clusters.
-      # Use pooled within-cluster SD as reference; gate if gap > 1 SD.
+
       wss_good <- sum((qs[km$cluster == good_cluster] - km$centers[good_cluster, 1])^2)
-      wss_bad  <- sum((qs[km$cluster == bad_cluster] - km$centers[bad_cluster, 1])^2)
+      wss_bad  <- sum((qs[km$cluster == bad_cluster]  - km$centers[bad_cluster, 1])^2)
       n_good <- sum(km$cluster == good_cluster)
       n_bad  <- sum(km$cluster == bad_cluster)
       pooled_sd <- sqrt((wss_good + wss_bad) / max(1, n_good + n_bad - 2L))
-      # If pooled_sd == 0, separation is perfect → always apply gate.
-      # Otherwise, require gap > 1 pooled SD.
-      if (pooled_sd == 0 && gap > 0) {
-        quality_tbl$pass_gate <- quality_tbl$pass_gate & (km$cluster == good_cluster)
-      } else if (pooled_sd > 0 && gap / pooled_sd > 1.0) {
-        quality_tbl$pass_gate <- quality_tbl$pass_gate & (km$cluster == good_cluster)
+
+      quality_tbl$km_cluster <- km$cluster
+      quality_tbl$km_good    <- (km$cluster == good_cluster)
+
+      if ((pooled_sd == 0 && gap > 0) ||
+          (pooled_sd > 0  && gap / pooled_sd > gap_threshold)) {
+        quality_tbl$selected <- (km$cluster == good_cluster)
+        km_separated <- TRUE
       }
     }
+    # Fallback: k-means cannot separate → use modularity >= 0.3
+    if (!km_separated) {
+      quality_tbl$selected <- (quality_tbl$modularity >= min_modularity)
+    }
+  } else {
+    # < 4 models: use modularity >= 0.3
+    quality_tbl$selected <- (quality_tbl$modularity >= min_modularity)
   }
 
-  # --- Step 2: Rank-based filtering among gate-passed connections ---
-  idx_passed <- which(quality_tbl$pass_gate)
-  if (length(idx_passed) == 0L) {
-    # All connections failed the gate → fall back to best single connection
-    warning("All connections failed quality gate. Selecting the single best connection.")
-    idx_passed <- which.min(quality_tbl$rank_sum)
-  }
-
-  # Within passed connections, apply drop_bottom_q
-  n_passed <- length(idx_passed)
-  n_drop <- floor(n_passed * drop_bottom_q)
-  n_keep <- max(1L, n_passed - n_drop)
-  keep_order <- order(
-    quality_tbl$rank_sum[idx_passed],
-    -quality_tbl$quality_score[idx_passed],
-    quality_tbl$model[idx_passed],
-    na.last = TRUE
-  )
-  idx_after_quality <- idx_passed[keep_order[seq_len(n_keep)]]
-
-  keep_flag <- rep(FALSE, n_models)
-  keep_flag[idx_after_quality] <- TRUE
-  quality_tbl$keep_quality <- keep_flag
-
+  # Parse model names into response / predictor
   split_names <- stringr::str_split(model_names, "_")
   lens <- lengths(split_names)
   if (any(lens < 2)) {
     stop("All model names must contain at least one underscore in `response_predictor` format.")
   }
 
-  response <- vapply(split_names, `[`, FUN.VALUE = character(1), 1)
+  response  <- vapply(split_names, `[`, FUN.VALUE = character(1), 1)
   predictor <- vapply(split_names, `[`, FUN.VALUE = character(1), 2)
-  pair_id <- vapply(
+  pair_id   <- vapply(
     seq_along(model_names),
     function(i) paste(sort(c(response[i], predictor[i])), collapse = "__"),
     FUN.VALUE = character(1)
   )
 
+  # Among selected, pick best direction per pair
+  idx_selected <- which(quality_tbl$selected)
+  if (length(idx_selected) == 0L) {
+    warning("No connections passed k-means selection. Selecting the single best connection.")
+    idx_selected <- which.min(quality_tbl$rank_sum)
+  }
+
   if (select_one_per_pair) {
     idx_selected <- unlist(
-      lapply(split(idx_after_quality, pair_id[idx_after_quality]), function(idx) {
+      lapply(split(idx_selected, pair_id[idx_selected]), function(idx) {
         o <- order(
           quality_tbl$rank_sum[idx],
           -quality_tbl$quality_score[idx],
@@ -168,8 +144,6 @@ find_connection <- function(mod.list,
       }),
       use.names = FALSE
     )
-  } else {
-    idx_selected <- idx_after_quality
   }
   idx_selected <- sort(idx_selected)
 

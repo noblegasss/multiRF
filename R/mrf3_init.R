@@ -174,7 +174,7 @@ mrf3_init <- function(dat.list,
         m$forest.wt <- m$forest.wt.oob
         m
       })
-      conn_out <- find_connection(mod_all_oob, return_score = TRUE, drop_bottom_q = 0.2)
+      conn_out <- find_connection(mod_all_oob, return_score = TRUE)
       connect_list <- conn_out$connect_list
       connection_score <- conn_out$score
       connection_top_v_used <- conn_out$top_v_used
@@ -212,7 +212,7 @@ mrf3_init <- function(dat.list,
       )
 
       if (verbose) message("  Finding connections..")
-      conn_out <- find_connection(mod_all, return_score = TRUE, drop_bottom_q = 0.2)
+      conn_out <- find_connection(mod_all, return_score = TRUE)
       connect_list <- conn_out$connect_list
       connection_score <- conn_out$score
       connection_top_v_used <- conn_out$top_v_used
