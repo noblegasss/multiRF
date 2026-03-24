@@ -86,6 +86,18 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// compute_oob_forest_wt_cpp
+NumericMatrix compute_oob_forest_wt_cpp(IntegerMatrix membership, IntegerMatrix inbag);
+RcppExport SEXP _multiRF_compute_oob_forest_wt_cpp(SEXP membershipSEXP, SEXP inbagSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerMatrix >::type membership(membershipSEXP);
+    Rcpp::traits::input_parameter< IntegerMatrix >::type inbag(inbagSEXP);
+    rcpp_result_gen = Rcpp::wrap(compute_oob_forest_wt_cpp(membership, inbag));
+    return rcpp_result_gen;
+END_RCPP
+}
 // tsne_cost_gradient_cpp
 NumericMatrix tsne_cost_gradient_cpp(NumericMatrix Y, NumericMatrix P);
 RcppExport SEXP _multiRF_tsne_cost_gradient_cpp(SEXP YSEXP, SEXP PSEXP) {
@@ -104,6 +116,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_multiRF_compute_split_stats_cpp", (DL_FUNC) &_multiRF_compute_split_stats_cpp, 4},
     {"_multiRF_fit_mv_forest_cpp", (DL_FUNC) &_multiRF_fit_mv_forest_cpp, 15},
     {"_multiRF_fit_mv_forest_unsup_cpp", (DL_FUNC) &_multiRF_fit_mv_forest_unsup_cpp, 12},
+    {"_multiRF_compute_oob_forest_wt_cpp", (DL_FUNC) &_multiRF_compute_oob_forest_wt_cpp, 2},
     {"_multiRF_tsne_cost_gradient_cpp", (DL_FUNC) &_multiRF_tsne_cost_gradient_cpp, 2},
     {NULL, NULL, 0}
 };

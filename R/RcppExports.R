@@ -17,6 +17,10 @@ fit_mv_forest_unsup_cpp <- function(data, ntree = 500L, ytry = 10L, nodesize_min
     .Call(`_multiRF_fit_mv_forest_unsup_cpp`, data, ntree, ytry, nodesize_min, max_depth, seed, nthread, samptype, prox_mode, embed, sibling_gamma, enhanced_prox_mode)
 }
 
+compute_oob_forest_wt_cpp <- function(membership, inbag) {
+    .Call(`_multiRF_compute_oob_forest_wt_cpp`, membership, inbag)
+}
+
 tsne_cost_gradient_cpp <- function(Y, P) {
     .Call(`_multiRF_tsne_cost_gradient_cpp`, Y, P)
 }
