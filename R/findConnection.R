@@ -13,10 +13,6 @@
 #' @param keep_ties Logical; whether top-v truncation keeps ties at cutoff.
 #' @param select_one_per_pair Logical; whether to keep at most one direction per
 #' omics pair among quality-filtered models.
-#' @param edge_threshold Non-negative threshold for binarizing weights when
-#' computing GCC.
-#' @param gcc_symm Logical; whether to symmetrize adjacency by `pmax(W, t(W))`
-#' before GCC.
 #' @param ... Additional arguments (currently ignored).
 #'
 #' @return A character vector of selected model names (`response_predictor`).
@@ -33,8 +29,6 @@ find_connection <- function(mod.list,
                             row_normalize = TRUE,
                             keep_ties = TRUE,
                             select_one_per_pair = TRUE,
-                            edge_threshold = 0,
-                            gcc_symm = TRUE,
                             ...){
 
   if (inherits(mod.list, "mrf3")) {
@@ -50,10 +44,6 @@ find_connection <- function(mod.list,
   if (!is.numeric(drop_bottom_q) || length(drop_bottom_q) != 1L ||
       !is.finite(drop_bottom_q) || drop_bottom_q < 0 || drop_bottom_q >= 1) {
     stop("`drop_bottom_q` must be a single numeric in [0, 1).")
-  }
-  if (!is.numeric(edge_threshold) || length(edge_threshold) != 1L ||
-      !is.finite(edge_threshold) || edge_threshold < 0) {
-    stop("`edge_threshold` must be a single non-negative number.")
   }
 
   top_v_used <- top_v
@@ -81,36 +71,27 @@ find_connection <- function(mod.list,
 
   quality_tbl <- data.frame(
     model = model_names,
-    entropy_concentration = NA_real_,
-    gcc_ratio = NA_real_,
+    modularity = NA_real_,
+    oob_nmse = NA_real_,
     stringsAsFactors = FALSE
   )
 
   for (i in seq_along(model_names)) {
-    fw <- mod.list[[i]]$forest.wt
+    mod_i <- mod.list[[i]]
+    fw <- mod_i$forest.wt
     if (is.null(fw)) {
       stop("Model `", model_names[i], "` does not contain `forest.wt`.")
     }
-    W <- prepare_weight_matrix(
-      fw,
-      adjust = adjust_weights,
-      top_v = top_v_used,
-      row_normalize = row_normalize,
-      zero_diag = TRUE,
-      keep_ties = keep_ties
-    )
-    quality_tbl$entropy_concentration[i] <- calc_weight_concentration(W)
-    quality_tbl$gcc_ratio[i] <- calc_gcc_ratio(
-      W,
-      edge_threshold = edge_threshold,
-      symm = gcc_symm
-    )
+    quality_tbl$modularity[i] <- calc_modularity(fw)
+    quality_tbl$oob_nmse[i]   <- get_oob_nmse(mod_i)
   }
 
-  quality_tbl$rank_entropy <- rank(-quality_tbl$entropy_concentration, ties.method = "average")
-  quality_tbl$rank_gcc <- rank(-quality_tbl$gcc_ratio, ties.method = "average")
-  quality_tbl$quality_score <- quality_tbl$entropy_concentration + quality_tbl$gcc_ratio
-  quality_tbl$rank_sum <- quality_tbl$rank_entropy + quality_tbl$rank_gcc
+  # modularity: higher = better → rank descending
+  # oob_nmse:   lower = better  → rank ascending
+  quality_tbl$rank_modularity <- rank(-quality_tbl$modularity, ties.method = "average")
+  quality_tbl$rank_oob        <- rank( quality_tbl$oob_nmse,   ties.method = "average")
+  quality_tbl$quality_score   <- quality_tbl$modularity - quality_tbl$oob_nmse
+  quality_tbl$rank_sum        <- quality_tbl$rank_modularity + quality_tbl$rank_oob
 
   n_models <- nrow(quality_tbl)
   n_drop <- floor(n_models * drop_bottom_q)
@@ -337,4 +318,28 @@ calc_gcc_ratio <- function(W, edge_threshold = 0, symm = TRUE) {
   g <- igraph::graph_from_adjacency_matrix(A, mode = "undirected", diag = FALSE)
   comp <- igraph::components(g)
   max(comp$csize) / n
+}
+
+
+#' Modularity of forest weight matrix
+#'
+#' Symmetrizes the raw forest weight matrix and computes weighted modularity
+#' via Louvain community detection.  Higher modularity indicates clearer
+#' block / cluster structure in the proximity graph.
+#'
+#' @param fw A raw forest weight matrix (n x n).
+#' @return A single numeric modularity value (typically 0 to ~0.8).
+#' @keywords internal
+calc_modularity <- function(fw) {
+  W <- as.matrix(fw)
+  W[!is.finite(W)] <- 0
+  W <- pmax(W, 0)
+  W <- pmax(W, t(W))
+  diag(W) <- 0
+  n <- nrow(W)
+  if (n <= 1L) return(0)
+  g <- igraph::graph_from_adjacency_matrix(W, mode = "undirected",
+                                            weighted = TRUE, diag = FALSE)
+  cl <- igraph::cluster_louvain(g)
+  igraph::modularity(cl)
 }
