@@ -2,17 +2,16 @@
 #'
 #' Scores each directional RF model using modularity of the raw forest weight
 #' matrix (and optionally OOB normalized MSE).  Two-step selection:
-#' (1) an absolute modularity threshold removes weak connections;
-#' (2) \code{select_one_per_pair} keeps at most one direction per omics pair
-#' (highest quality score).
+#' (1) \code{select_one_per_pair} picks the best direction per omics pair
+#' (highest quality score), giving C(K,2) candidates;
+#' (2) greedily select candidates in descending quality order until every
+#' omic appears in at least one selected connection.
 #'
 #' @param mod.list A named list of fitted RF models. Model names must follow
 #' `response_predictor` convention.
 #' @param return_score Logical; whether to return the directional score matrix.
 #' @param select_one_per_pair Logical; whether to keep at most one direction per
 #' omics pair among selected models.
-#' @param min_modularity Numeric; absolute modularity threshold.  Connections
-#' with modularity below this value are dropped.  Default is \code{0.3}.
 #' @param compute_oob Logical; whether to compute OOB normalized MSE in
 #' addition to modularity.  When \code{TRUE},
 #' \code{quality_score = modularity - oob_nmse}; when \code{FALSE},
@@ -29,7 +28,6 @@
 find_connection <- function(mod.list,
                             return_score = FALSE,
                             select_one_per_pair = TRUE,
-                            min_modularity = 0.3,
                             compute_oob = FALSE,
                             ...){
 
@@ -74,11 +72,6 @@ find_connection <- function(mod.list,
 
   n_models <- nrow(quality_tbl)
 
-  # --- Two-step connection selection ---
-  # Step 1: modularity filter — drop connections with modularity < min_modularity.
-  # Step 2: select_one_per_pair — pick best direction per omics pair.
-  quality_tbl$selected <- (quality_tbl$modularity >= min_modularity)
-
   # Parse model names into response / predictor
   split_names <- stringr::str_split(model_names, "_")
   lens <- lengths(split_names)
@@ -94,22 +87,39 @@ find_connection <- function(mod.list,
     FUN.VALUE = character(1)
   )
 
-  # Step 2: select one per pair (pick highest quality_score per pair)
-  idx_selected <- which(quality_tbl$selected)
-  if (length(idx_selected) == 0L) {
-    warning("No connections passed selection. Selecting the single best connection.")
-    idx_selected <- which.max(quality_tbl$quality_score)
-  }
+  # --- Two-step connection selection ---
+  # Step 1: select best direction per omic pair → C(K,2) candidates
+  all_omics <- unique(c(response, predictor))
+  all_pairs <- unique(pair_id)
 
   if (select_one_per_pair) {
-    idx_selected <- unlist(
-      lapply(split(idx_selected, pair_id[idx_selected]), function(idx) {
+    idx_best_per_pair <- unlist(
+      lapply(split(seq_len(n_models), pair_id), function(idx) {
         o <- order(-quality_tbl$quality_score[idx], quality_tbl$model[idx])
         idx[o[1]]
       }),
       use.names = FALSE
     )
+  } else {
+    idx_best_per_pair <- seq_len(n_models)
   }
+
+  # Step 2: greedily add candidates (by descending quality_score) until
+  #         every omic is covered.  Result: ceil(K/2) to K-1 connections.
+  rank_order <- order(-quality_tbl$quality_score[idx_best_per_pair])
+  idx_ranked <- idx_best_per_pair[rank_order]
+
+  idx_selected <- integer(0)
+  covered <- character(0)
+
+  for (j in idx_ranked) {
+    idx_selected <- c(idx_selected, j)
+    covered <- unique(c(covered, response[j], predictor[j]))
+    if (length(covered) >= length(all_omics)) break
+  }
+
+  quality_tbl$selected <- seq_len(n_models) %in% idx_selected
+
   idx_selected <- sort(idx_selected)
 
   model_connection <- model_names[idx_selected]
