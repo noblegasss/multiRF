@@ -3,7 +3,7 @@
 **Fast multivariate random forests for multi-omics integration**
 
 `multiRF` is an R package for integrating matched multi-omics datasets with
-multivariate random forests. It fits directed forest models across omics
+multivariate random forests (MRF). It fits directed forest models across omics
 blocks, learns sample-by-sample similarity from shared terminal-node structure,
 and decomposes the result into shared and omics-specific components for
 clustering, variable selection, and visualization.
@@ -11,8 +11,7 @@ clustering, variable selection, and visualization.
 The package now uses a native C++ backend for multivariate regression,
 unsupervised forests, forest weights, proximity matrices, and enhanced
 proximity with sibling-leaf corrections. In practice, this gives a simpler
-installation path and a faster workflow than the old `randomForestSRC`-based
-pipeline while keeping the same overall modeling logic.
+installation path and a faster MRF than the `randomForestSRC`-based MRF while keeping the same overall modeling logic.
 
 Project website: [https://novawz.github.io/multiRF/](https://novawz.github.io/multiRF/)
 
