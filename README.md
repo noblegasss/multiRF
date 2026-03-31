@@ -69,6 +69,14 @@ get_top_vars(fit, n = 10)
 ## Clustering modes
 
 ```r
+fit_sim <- mrf3(
+  tcga_brca,
+  k = 4,
+  ntree = 100,
+  main_clustering = "similarity", # default
+  seed = 529
+)
+
 fit_prox <- mrf3(
   tcga_brca,
   k = 4,
