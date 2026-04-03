@@ -22,6 +22,7 @@
 #include <random>
 #include <array>
 #include <unordered_map>
+#include <map>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -1489,7 +1490,7 @@ List fit_mv_forest_cpp(NumericMatrix X, NumericMatrix Y,
   for (int t = 0; t < ntree; t++) {
     const auto& inbag_freq = tree_results[t].inbag;
 
-    std::unordered_map<int, std::vector<int>> leaf_groups;
+    std::map<int, std::vector<int>> leaf_groups;
     for (int i = 0; i < n; i++) {
       leaf_groups[tree_results[t].leaf_ids[i]].push_back(i);
     }
@@ -1557,7 +1558,7 @@ List fit_mv_forest_cpp(NumericMatrix X, NumericMatrix Y,
           }
         }
 
-        std::unordered_map<int, std::vector<int>> prox_leaf_groups;
+        std::map<int, std::vector<int>> prox_leaf_groups;
         for (int idx : prox_members) {
           prox_leaf_groups[tree_results[t].leaf_ids[idx]].push_back(idx);
         }
@@ -1973,7 +1974,7 @@ List fit_mv_forest_unsup_cpp(NumericMatrix data,
     const auto& inbag_freq = tree_results[t].inbag;
     const auto& leaf_ids = tree_results[t].leaf_ids;
 
-    std::unordered_map<int, std::vector<int>> leaf_groups;
+    std::map<int, std::vector<int>> leaf_groups;
     for (int i = 0; i < n; i++) leaf_groups[leaf_ids[i]].push_back(i);
 
     for (auto& kv : leaf_groups) {
@@ -2037,7 +2038,7 @@ List fit_mv_forest_unsup_cpp(NumericMatrix data,
           }
         }
 
-        std::unordered_map<int, std::vector<int>> prox_leaf_groups;
+        std::map<int, std::vector<int>> prox_leaf_groups;
         for (int idx : prox_members) {
           prox_leaf_groups[leaf_ids[idx]].push_back(idx);
         }
