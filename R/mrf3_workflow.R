@@ -691,8 +691,8 @@ mrf3_fit <- function(dat.list,
     specific = main_specific,
 
     ## ---------- IMD ----------
-    weights = if (!is.null(stage_imd)) stage_imd$weight_list else NULL,
-    weights_init = if (!is.null(stage_imd)) stage_imd$weight_list_init else NULL,
+    imd = if (!is.null(stage_imd)) stage_imd$weight_list else NULL,
+    imd_init = if (!is.null(stage_imd)) stage_imd$weight_list_init else NULL,
     imd_net = if (!is.null(stage_imd)) stage_imd$net else NULL,
 
     ## ---------- Cluster IMD ----------

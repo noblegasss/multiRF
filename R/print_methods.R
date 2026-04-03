@@ -35,10 +35,11 @@ print.mrf3 <- function(x, max_weights = 5L, ...) {
   }
 
   ## Weights summary
-  if (!is.null(x$weights) && is.list(x$weights)) {
-    cat("\n  Weights per block:\n")
-    for (nm in names(x$weights)) {
-      w <- x$weights[[nm]]
+  imd_wts <- x$imd
+  if (!is.null(imd_wts) && is.list(imd_wts)) {
+    cat("\n  IMD weights per block:\n")
+    for (nm in names(imd_wts)) {
+      w <- imd_wts[[nm]]
       p_total <- length(w)
       p_nonzero <- sum(w != 0)
       cat("    ", nm, ": ", p_nonzero, "/", p_total, " non-zero", sep = "")

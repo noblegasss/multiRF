@@ -48,7 +48,7 @@ summary.mrf3_fit <- function(object, ...) {
     ran = c(
       !is.null(object$shared),
       !is.null(object$specific),
-      !is.null(object$weights),
+      !is.null(object$imd),
       !is.null(object$cluster_imd),
       !is.null(object$selected_vars),
       !is.null(object$robust_clusters)
@@ -65,7 +65,7 @@ summary.mrf3_fit <- function(object, ...) {
       } else {
         "skipped"
       },
-      if (!is.null(object$weights)) {
+      if (!is.null(object$imd)) {
         paste0("net=", length(object$imd_net))
       } else {
         "skipped"
@@ -202,7 +202,7 @@ print.summary.mrf3_fit <- function(x, digits = 3, max_shared_frac_rows = 8L, ...
 print.mrf3_fit <- function(x, ...) {
   sx <- summary.mrf3_fit(x)
   print.summary.mrf3_fit(sx, ...)
-  cat("\nKey fields: $clusters, $weights, $selected_vars, $robust_clusters,\n")
+  cat("\nKey fields: $clusters, $imd, $selected_vars, $robust_clusters,\n")
   cat("  $models, $connection, $shared, $specific, $cluster_imd, $reconstruction, $data\n")
   cat("Accessors: get_clusters(), get_weights(), get_selected_vars(), get_top_vars(), ...\n")
   invisible(x)
@@ -241,17 +241,6 @@ print.mrf3_fit <- function(x, ...) {
         selected_fused_top_v = .subset2(x, "fused_top_v"),
         model_top_v_candidates = .subset2(x, "tuning_detail")$model_top_v_candidates,
         fused_top_v_candidates = .subset2(x, "tuning_detail")$fused_top_v_candidates
-      )
-    },
-    imd = function() {
-      .Deprecated(msg = paste0(
-        "Access via `$imd` is deprecated.\n",
-        "Use `$weights`, `$weights_init`, `$imd_net` directly."
-      ))
-      list(
-        weight_list = .subset2(x, "weights"),
-        weight_list_init = .subset2(x, "weights_init"),
-        net = .subset2(x, "imd_net")
       )
     },
     variable_selection = function() {

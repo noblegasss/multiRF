@@ -212,16 +212,18 @@ extract_plot_weights <- function(x, source = c("auto", "imd", "cluster_imd", "mr
   source <- match.arg(source)
 
   if (identical(source, "mrf")) {
-    if (!is.list(x) || is.null(x$weights)) {
-      stop("`source = 'mrf'` requires an mrf3-like object with `$weights`.")
+    wts <- x$imd
+    if (!is.list(x) || is.null(wts)) {
+      stop("`source = 'mrf'` requires an mrf3-like object with `$imd`.")
     }
-    return(as_weight_list(x$weights))
+    return(as_weight_list(wts))
   }
 
   if (is_mrf3_fit_object(x)) {
     if (source %in% c("auto", "imd")) {
-      if (!is.null(x$weights)) {
-        return(as_weight_list(x$weights))
+      wts <- x$imd
+      if (!is.null(wts)) {
+        return(as_weight_list(wts))
       }
       if (identical(source, "imd")) {
         stop("`weights` is unavailable in mrf3_fit object.")
@@ -245,8 +247,9 @@ extract_plot_weights <- function(x, source = c("auto", "imd", "cluster_imd", "mr
     stop("Cannot auto-resolve weights from mrf3_fit object. Use `source = 'imd'` or `source = 'cluster_imd'`.")
   }
 
-  if (is.list(x) && !is.null(x$weights) && (inherits(x, "mrf3") || identical(source, "auto"))) {
-    return(as_weight_list(x$weights))
+  if (is.list(x) && (inherits(x, "mrf3") || identical(source, "auto"))) {
+    wts <- x$imd
+    if (!is.null(wts)) return(as_weight_list(wts))
   }
 
   as_weight_list(x)

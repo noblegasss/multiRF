@@ -145,7 +145,7 @@ merge_cluster_outputs <- function(shared_specific, specific_clustering) {
     frac = shared_specific$shared_frac,
     clustering = specific_clustering$shared
   )
-  clusters <- shared_out$clustering$cl
+  shared_cl <- shared_out$clustering$cl
   shared_out$clustering$cl <- NULL
 
   # Pull variable-level IMD out of specific$weights to top level
@@ -158,6 +158,20 @@ merge_cluster_outputs <- function(shared_specific, specific_clustering) {
     imd = spec_imd,
     clustering = specific_clustering$specific
   )
+
+  # Build clusters list: shared + per-block specific
+  clusters <- list(shared = shared_cl)
+  spec_cl_src <- specific_clustering$specific
+  if (is.list(spec_cl_src)) {
+    for (nm in names(spec_cl_src)) {
+      cl_vec <- NULL
+      if (is.list(spec_cl_src[[nm]])) {
+        cl_vec <- spec_cl_src[[nm]]$cl
+      }
+      clusters[[nm]] <- cl_vec
+    }
+  }
+
   list(
     clusters = clusters,
     shared = shared_out,

@@ -55,7 +55,10 @@ cluster_imd <- function(x,
     base$ntree <- x$config$ntree
     base$ytry <- x$config$ytry
     if (is.null(base$dat)) base$dat <- x$data
-    if (is.null(cluster)) cluster <- x$clusters
+    if (is.null(cluster)) {
+      cl <- x$clusters
+      cluster <- if (is.list(cl) && !is.null(names(cl))) cl$shared else cl
+    }
   } else if (inherits(x, "mrf3")) {
     base$mod_list <- x$mod
     base$connect_list <- x$connection

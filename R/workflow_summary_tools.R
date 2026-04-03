@@ -157,7 +157,7 @@ mrf3_stability <- function(x,
   build_branch_input <- function(branch) {
     if (identical(branch, "specific_shared")) {
       S <- x$shared$clustering$similarity
-      cl0 <- x$clusters
+      cl0 <- if (is.list(x$clusters) && !is.null(names(x$clusters))) x$clusters$shared else x$clusters
       if (is.null(S) || is.null(cl0)) {
         stop("`specific_shared` branch is unavailable in `mrf3_fit` output.")
       }
@@ -436,8 +436,19 @@ mrf3_tidy_clusters <- function(x) {
     invisible(NULL)
   }
 
-  push_rows("specific_shared", x$clusters)
-  push_rows("robust_clustering", x$robust_clusters)
+  if (is.list(x$clusters) && !is.null(names(x$clusters))) {
+    push_rows("specific_shared", x$clusters$shared)
+    for (nm in setdiff(names(x$clusters), "shared")) {
+      push_rows("specific_specific", x$clusters[[nm]], omics = nm)
+    }
+  } else {
+    push_rows("specific_shared", x$clusters)
+  }
+  if (is.list(x$robust_clusters) && !is.null(names(x$robust_clusters))) {
+    push_rows("robust_clustering", x$robust_clusters$shared)
+  } else {
+    push_rows("robust_clustering", x$robust_clusters)
+  }
 
   by_omics <- x$specific$clustering$by_omics
   if (is.list(by_omics) && length(by_omics) > 0L) {
@@ -480,7 +491,7 @@ mrf3_tidy_imd <- function(x, top_n = NULL, abs_weight = TRUE, cluster = NULL) {
   }
 
   source <- "imd"
-  w_list <- x$weights
+  w_list <- x$imd
   cl_name <- NA_character_
   if (!is.null(cluster)) {
     source <- "cluster_imd"

@@ -9,7 +9,6 @@
 // accumulation to OOB trees for each row sample.
 
 #include <Rcpp.h>
-#include <map>
 using namespace Rcpp;
 
 // [[Rcpp::export]]
@@ -25,7 +24,7 @@ NumericMatrix compute_oob_forest_wt_cpp(IntegerMatrix membership,
   for (int t = 0; t < ntree; t++) {
     // Build leaf -> sample list for this tree
     // Also compute bootstrap leaf sizes
-    std::map<int, std::vector<int>> leaf_samples;
+    std::unordered_map<int, std::vector<int>> leaf_samples;
     for (int i = 0; i < n; i++) {
       leaf_samples[membership(i, t)].push_back(i);
     }

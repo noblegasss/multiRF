@@ -18,13 +18,18 @@
 #'
 #' @return A named vector of cluster assignments, or `NULL` if not available.
 #' @export
-get_clusters <- function(x, which = "main", ...) {
+get_clusters <- function(x, which = "main", block = NULL, ...) {
   if (inherits(x, "mrf3_fit")) {
     which <- match.arg(which, c("main", "robust"))
     if (identical(which, "robust")) {
       return(x$robust_clusters)
     }
-    return(x$clusters)
+    cl <- x$clusters
+    if (is.list(cl) && !is.null(names(cl))) {
+      if (!is.null(block)) return(cl[[block]])
+      return(cl$shared)
+    }
+    return(cl)
   }
   if (inherits(x, "reconstr") || inherits(x, "prox")) {
     return(x$cl)
@@ -63,10 +68,10 @@ get_weights <- function(x, cluster = NULL, ...) {
     return(x$by_cluster[[cl]]$imd$weight_list)
   }
   if (inherits(x, "mrf3_fit")) {
-    return(x$weights)
+    return(x$imd)
   }
   if (inherits(x, "mrf3")) {
-    return(x$weights)
+    return(if (!is.null(x$imd)) x$imd else x$weights)
   }
   NULL
 }

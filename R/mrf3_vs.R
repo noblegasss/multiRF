@@ -1,7 +1,7 @@
 #' MRF variable selection
 #'
 #' @param mod A fitted `mrf3_fit` object, or an `mrf3`-like object that already
-#' contains IMD weights in `mod$weights`.
+#' contains IMD weights in `mod$imd` (or legacy `mod$weights`).
 #' @param dat.list A list of omics matrices used for feature selection/refit.
 #' @param method Feature-selection rule: `"filter"`, `"test"`, `"mixture"`, or `"thres"`.
 #' @param se Multiplier on standard deviation for thresholding in `"thres"` mode.
@@ -54,11 +54,11 @@ mrf3_vs <- function(mod,
         "Run `mrf3_fit(..., return_data = TRUE)` or provide `dat.list` explicitly."
       )
     }
-    wf_weights <- wf$weights
-    wf_weights_ls <- wf$weights_init
+    wf_weights <- wf$imd
+    wf_weights_ls <- wf$imd_init
     if (is.null(wf_weights)) {
       stop(
-        "`mrf3_vs()` with `mrf3_fit` requires IMD weights (`wf$weights`). ",
+        "`mrf3_vs()` with `mrf3_fit` requires IMD weights (`wf$imd`). ",
         "Run `mrf3_fit(..., run_imd = TRUE)` first."
       )
     }

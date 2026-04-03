@@ -26,8 +26,9 @@ pairwise_imd <- function(x,
 
   if (has_precomputed) {
     message("  Using pre-computed pairwise_xy from native engine.")
-    dat_names <- names(x$weights)
-    var_names_all <- lapply(x$weights, names)
+    imd_wts <- x$imd
+    dat_names <- names(imd_wts)
+    var_names_all <- lapply(imd_wts, names)
     var_use <- pairwise_imd_feature_set(x, mod, feature_source = feature_source)
 
     # Build block-level adjacency
@@ -203,7 +204,7 @@ pairwise_imd_extract_object <- function(x) {
     return(list(
       net = x$imd_net,
       connection = x$connection,
-      weights = x$weights,
+      weights = x$imd,
       ntree = x$config$ntree
     ))
   }
@@ -211,7 +212,7 @@ pairwise_imd_extract_object <- function(x) {
     return(list(
       net = x$net,
       connection = x$connection,
-      weights = x$weights,
+      weights = x$imd,
       ntree = x$ntree
     ))
   }
