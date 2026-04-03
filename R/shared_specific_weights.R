@@ -98,8 +98,9 @@ get_shared_specific_weights <- function(dat.list,
 
   specific_W <- vector("list", length(dat_names))
   specific_imd <- vector("list", length(dat_names))
+  specific_imd_per_tree <- vector("list", length(dat_names))
   residual_mod <- vector("list", length(dat_names))
-  names(specific_W) <- names(specific_imd) <- names(residual_mod) <- dat_names
+  names(specific_W) <- names(specific_imd) <- names(specific_imd_per_tree) <- names(residual_mod) <- dat_names
 
   # --- Build per-response weight matrices W^(k) ----------------------------
   # For each block k, W^(k) is the modularity-weighted average of W_m's
@@ -241,6 +242,9 @@ get_shared_specific_weights <- function(dat.list,
       } else {
         specific_imd[[d]] <- setNames(rep(1.0 / ncol(X), ncol(X)), colnames(X))
       }
+      if (!is.null(r_mod$imd_weights_per_tree) && !is.null(r_mod$imd_weights_per_tree$X)) {
+        specific_imd_per_tree[[d]] <- r_mod$imd_weights_per_tree$X
+      }
 
     } else {
       # Consensus path: average forest weights and IMD across n_cons runs
@@ -302,6 +306,10 @@ get_shared_specific_weights <- function(dat.list,
       } else {
         specific_imd[[d]] <- setNames(rep(1.0 / ncol(X), ncol(X)), colnames(X))
       }
+      # Store per-tree from last consensus run
+      if (!is.null(last_mod$imd_weights_per_tree) && !is.null(last_mod$imd_weights_per_tree$X)) {
+        specific_imd_per_tree[[d]] <- last_mod$imd_weights_per_tree$X
+      }
     }
   }
 
@@ -320,7 +328,8 @@ get_shared_specific_weights <- function(dat.list,
       predicted = predicted,
       residual_mod = residual_mod,
       W = specific_W,
-      imd = specific_imd
+      imd = specific_imd,
+      imd_per_tree = specific_imd_per_tree
     )
   )
 }
