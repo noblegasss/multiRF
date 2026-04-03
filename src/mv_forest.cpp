@@ -21,7 +21,6 @@
 #include <cmath>
 #include <random>
 #include <array>
-#include <unordered_map>
 #include <map>
 
 #ifdef _OPENMP
