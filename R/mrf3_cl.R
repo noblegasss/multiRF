@@ -151,11 +151,14 @@ merge_cluster_outputs <- function(shared_specific, specific_clustering) {
   # Pull variable-level IMD out of specific$weights to top level
   spec_data <- shared_specific$specific
   spec_imd <- spec_data$imd
+  spec_imd_pt <- spec_data$imd_per_tree
   spec_data$imd <- NULL
+  spec_data$imd_per_tree <- NULL
 
   specific_out <- list(
     weights = spec_data,
     imd = spec_imd,
+    imd_per_tree = spec_imd_pt,
     clustering = specific_clustering$specific
   )
 
