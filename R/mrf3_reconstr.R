@@ -44,6 +44,7 @@ mrf3_reconstr <- function(recon = NULL,
                           dat_use_to_cluster = "ALL",
                           model_top_v = 10,
                           recon_fusion = c("weighted", "uniform"),
+                          global_fusion = c("average", "pmin"),
                           connection_score = NULL,
                           score_power = 1,
                           score_floor = 0,
@@ -70,6 +71,7 @@ mrf3_reconstr <- function(recon = NULL,
       rfit = rfit,
       model_top_v = model_top_v,
       recon_fusion = recon_fusion,
+      global_fusion = global_fusion,
       connection_score = connection_score,
       score_power = score_power,
       score_floor = score_floor,
@@ -198,6 +200,7 @@ mrf3_reconstr <- function(recon = NULL,
 get_reconstr_matrix <- function(rfit,
                                 model_top_v = 10,
                                 recon_fusion = c("weighted", "uniform"),
+                                global_fusion = c("average", "pmin"),
                                 connection_score = NULL,
                                 score_power = 1,
                                 score_floor = 0,
@@ -235,6 +238,7 @@ get_reconstr_matrix <- function(rfit,
     stop("`score_floor` must be a single non-negative numeric.")
   }
   recon_fusion <- match.arg(recon_fusion)
+  global_fusion <- match.arg(global_fusion)
   model_names <- names(rfit)
   n_models <- length(model_names)
 
@@ -259,13 +263,9 @@ get_reconstr_matrix <- function(rfit,
   )
   names(global_alpha) <- model_names
 
-  ## ── Sequential fusion: accumulate W_all on the fly ──────────
-
-  ## This avoids holding all K(K-1) dense n×n W matrices in memory
-
-  ## simultaneously.  Each W_m is computed, weighted, added to the
-  ## running sum, then only the reconstruction products are kept.
-  W_all <- NULL
+  ## ══════════════════════════════════════════════════════════════
+  ## Step 1: Extract and preprocess per-connection W_m matrices
+  ## ══════════════════════════════════════════════════════════════
   fused_info <- vector("list", length(model_names))
   names(fused_info) <- model_names
   W_models <- vector("list", length(model_names))
@@ -287,13 +287,6 @@ get_reconstr_matrix <- function(rfit,
       zero_diag = TRUE,
       keep_ties = TRUE
     )
-
-    ## Accumulate global fused weight matrix
-    if (is.null(W_all)) {
-      W_all <- W * global_alpha[[mi]]
-    } else {
-      W_all <- W_all + W * global_alpha[[mi]]
-    }
 
     ## Compute reconstruction products (keep these, they are smaller)
     xvar <- mod$xvar
@@ -318,13 +311,8 @@ get_reconstr_matrix <- function(rfit,
     W_models[[m]] <- W
     fused_info[[m]] <- list(model = m, mat = out, W = W)
   }
-  W_all <- postprocess_fused_weight(
-    W = W_all,
-    top_v = fused_top_v,
-    row_normalize = fused_row_normalize,
-    keep_ties = fused_keep_ties
-  )
 
+  ## Legacy reconstruction products (for backward compat / tSNE)
   mat_records <- list()
   rec_i <- 1L
   for (m in model_names) {
@@ -355,11 +343,88 @@ get_reconstr_matrix <- function(rfit,
     block_model_weights[[d]] <- d_alpha
   }
 
+  ## ══════════════════════════════════════════════════════════════
+  ## Step 2: Per-response W^(k) — only connections where k is response
+  ## W^(k) = sum_{i != k} alpha_{ki} * W_{ki},  normalised within
+  ## the response-k subset.  Used for shared-specific decomposition.
+  ## ══════════════════════════════════════════════════════════════
+  W_per_response <- vector("list", length(dat_names))
+  names(W_per_response) <- dat_names
+  per_response_alpha <- vector("list", length(dat_names))
+  names(per_response_alpha) <- dat_names
+
+  for (d in dat_names) {
+    resp_idx <- vapply(model_names, function(m) {
+      pair <- parse_model_pair(m)
+      identical(pair[1], d)
+    }, logical(1))
+    resp_models <- model_names[resp_idx]
+
+    if (length(resp_models) == 0L) {
+      warning(
+        "No connection has block `", d, "` as response. ",
+        "Falling back to uniform W for W_per_response.",
+        call. = FALSE
+      )
+      ## Use uniform average of all W_m as fallback
+      fallback_alpha <- rep(1 / length(model_names), length(model_names))
+      names(fallback_alpha) <- model_names
+      W_fb <- fuse_matrix_list(W_models, fallback_alpha)
+      rs <- rowSums(W_fb); rs[rs <= 0 | !is.finite(rs)] <- 1
+      W_per_response[[d]] <- W_fb / rs
+      per_response_alpha[[d]] <- fallback_alpha
+    } else {
+      resp_scores <- model_score[resp_models]
+      resp_scores[!is.finite(resp_scores)] <- 1.0
+      resp_scores <- pmax(resp_scores, 0)
+      resp_alpha <- normalize_fusion_weights(resp_scores, fallback_uniform = fallback_uniform)
+      names(resp_alpha) <- resp_models
+      per_response_alpha[[d]] <- resp_alpha
+
+      W_k <- fuse_matrix_list(W_models[resp_models], resp_alpha)
+      rs <- rowSums(W_k); rs[rs <= 0 | !is.finite(rs)] <- 1
+      W_per_response[[d]] <- W_k / rs
+    }
+  }
+
+  ## ══════════════════════════════════════════════════════════════
+  ## Step 3: Global W_M* — built FROM per-response W^(k) matrices
+  ## Two modes:
+  ##   "average" : W_M* = (1/K) * sum_k W^(k)  + optional fused_top_v
+  ##   "pmin"    : W_M*(i,j) = min_k W^(k)(i,j) + row-normalise
+  ##               (cross-modal intersection; fused_top_v not needed)
+  ## ══════════════════════════════════════════════════════════════
+  K <- length(W_per_response)
+  if (global_fusion == "pmin") {
+    ## Element-wise minimum across all per-response matrices
+    ## Samples are "shared-similar" only if ALL modalities agree
+    W_all <- W_per_response[[1]]
+    if (K > 1L) {
+      for (ki in seq_len(K)[-1]) {
+        W_all <- pmin(W_all, W_per_response[[ki]])
+      }
+    }
+    ## Row-normalise to maintain linear smoother property
+    rs <- rowSums(W_all); rs[rs <= 0 | !is.finite(rs)] <- 1
+    W_all <- W_all / rs
+  } else {
+    ## "average": uniform average of per-response matrices
+    W_all <- Reduce("+", W_per_response) / K
+    ## Apply optional fused_top_v and row-normalisation
+    W_all <- postprocess_fused_weight(
+      W = W_all,
+      top_v = fused_top_v,
+      row_normalize = fused_row_normalize,
+      keep_ties = fused_keep_ties
+    )
+  }
+
   list(
     fused_mat = full_fused_mat,
     W = list(
       W_all = W_all,
-      W_models = W_models
+      W_models = W_models,
+      W_per_response = W_per_response
     ),
     sample_names = rownames(rfit[[1]]$xvar),
     fusion_mode = if (recon_fusion == "weighted" && (!is.finite(weighted_sum) || weighted_sum <= 0)) {
@@ -367,8 +432,10 @@ get_reconstr_matrix <- function(rfit,
     } else {
       recon_fusion
     },
+    global_fusion = global_fusion,
     model_score = model_score,
     model_fusion_weights = global_alpha,
+    per_response_alpha = per_response_alpha,
     block_model_weights = block_model_weights
   )
 }

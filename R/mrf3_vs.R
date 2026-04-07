@@ -4,6 +4,8 @@
 #' contains IMD weights in `mod$imd`.
 #' @param dat.list A list of omics matrices used for feature selection/refit.
 #' @param method Feature-selection rule: `"filter"`, `"test"`, `"mixture"`, or `"thres"`.
+#' @param signal Which signal component to select on: `"shared"` (cross-modal),
+#'   `"specific"` (per-block residual), or `"all"` (both, returned as a list).
 #' @param se Multiplier on standard deviation for thresholding in `"thres"` mode.
 #' @param c1 Distribution family for component 1 in mixture mode.
 #' @param c2 Distribution family for component 2 in mixture mode.
@@ -28,6 +30,7 @@
 mrf3_vs <- function(mod,
                     dat.list = NULL,
                     method = "filter",
+                    signal = c("shared", "specific", "all"),
                     se = 1,
                     c1 = "normal",
                     c2 = "normal",
@@ -46,6 +49,19 @@ mrf3_vs <- function(mod,
                     select = "ALL",
                     ...){
 
+  signal <- match.arg(signal)
+
+  ## ---- signal = "all": run both shared and specific, return combined ----
+  if (signal == "all") {
+    message("Running shared + specific variable selection...")
+    cl <- match.call()
+    cl$signal <- "shared"
+    shared_res <- eval(cl, parent.frame())
+    cl$signal <- "specific"
+    specific_res <- eval(cl, parent.frame())
+    return(list(shared = shared_res, specific = specific_res))
+  }
+
   if (inherits(mod, "mrf3_fit")) {
     wf <- mod
     if (is.null(dat.list)) {
@@ -57,18 +73,62 @@ mrf3_vs <- function(mod,
         "Run `mrf3_fit(..., return_data = TRUE)` or provide `dat.list` explicitly."
       )
     }
-    wf_weights <- wf$imd
-    wf_weights_ls <- wf$imd_init
+
+    if (signal == "specific") {
+      ## ---- Specific signal: use residual-RF IMD ----
+      spec <- wf$specific
+      if (is.null(spec) || is.null(spec$imd)) {
+        stop(
+          "`mrf3_vs(signal = 'specific')` requires specific IMD weights ",
+          "in `wf$specific$imd`. Ensure shared-specific decomposition was run."
+        )
+      }
+      wf_weights <- spec$imd
+      ## Build imd_ls from specific imd_per_tree (p x ntree per block)
+      ## Format needed by test_fn: list of 1 pseudo-connection, each = list
+      ## of ntree elements, each = named list(block = vec)
+      wf_weights_ls <- NULL
+      spec_pt <- spec$imd_per_tree
+      if (!is.null(spec_pt) && length(spec_pt) > 0L) {
+        block_names <- names(spec_pt)
+        ## Each block's unsupervised RF is independent, so wrap each as a
+        ## separate pseudo-connection so test_fn processes them per-block
+        wf_weights_ls <- lapply(block_names, function(bn) {
+          pt_mat <- spec_pt[[bn]]  # p x ntree
+          if (is.null(pt_mat)) return(NULL)
+          nt <- ncol(pt_mat)
+          lapply(seq_len(nt), function(t) {
+            out <- list(pt_mat[, t])
+            names(out) <- bn
+            out
+          })
+        })
+        wf_weights_ls <- Filter(Negate(is.null), wf_weights_ls)
+      }
+    } else {
+      ## ---- Shared signal (original path) ----
+      wf_weights <- wf$imd
+      wf_weights_ls <- wf$imd_init
+    }
+
     if (is.null(wf_weights)) {
       stop(
-        "`mrf3_vs()` with `mrf3_fit` requires IMD weights (`wf$imd`). ",
+        "`mrf3_vs()` with `mrf3_fit` requires IMD weights. ",
         "Run `mrf3_fit(..., run_imd = TRUE)` first."
       )
     }
+
+    ## Build connection list for specific: one pseudo-connection per block
+    if (signal == "specific") {
+      connect_list_vs <- lapply(names(wf_weights), function(bn) c(bn, bn))
+    } else {
+      connect_list_vs <- wf$connection
+    }
+
     mod <- list(
       imd = wf_weights,
       imd_ls = wf_weights_ls,
-      connection = wf$connection,
+      connection = connect_list_vs,
       ytry = wf$config$ytry,
       ntree = wf$config$ntree,
       type = wf$type,
@@ -161,7 +221,43 @@ mrf3_vs <- function(mod,
   
   if(method == 'test'|tscore) {
 
-    if (is.null(mod$imd_ls)) {
+    if (signal == "specific") {
+      ## Direct per-block z-test for specific signal (no cross-modal connections)
+      imd_ls <- mod$imd_ls
+      if (is.null(imd_ls)) {
+        warning(
+          "`method = 'test'` for specific signal requires per-tree IMD. ",
+          "Falling back to `method = 'mixture'`.",
+          call. = FALSE
+        )
+        method <- "mixture"
+      } else {
+        block_names <- names(mod$imd)
+        thres_list <- lapply(seq_along(block_names), function(i) {
+          bn <- block_names[i]
+          w <- imd_ls[[i]]
+          raw <- purrr::map(w, bn)
+          raw <- raw[vapply(raw, length, integer(1)) > 0L]
+          if (length(raw) == 0L) return(list(keep_idx = NULL, pval = NULL, ts = NULL))
+          mat <- do.call(cbind, raw)  # p x ntree
+          mu <- mean(mat)
+          se <- apply(mat, 1, function(k) {
+            if (sum(k != 0) > 1) sd(k) / sqrt(length(k) - 1) else -1
+          })
+          z <- ifelse(se != -1, (rowMeans(mat) - mu) / se, 0)
+          p <- 1 - pnorm(z)
+          sig <- if (is.numeric(level)) level[1] else 0.05
+          keep <- ifelse(p < sig, 1, 0)
+          list(keep_idx = keep, pval = p, ts = z)
+        })
+        names(thres_list) <- block_names
+        thres <- list(
+          keep_idx = lapply(thres_list, `[[`, "keep_idx"),
+          pval = lapply(thres_list, `[[`, "pval"),
+          ts = lapply(thres_list, `[[`, "ts")
+        )
+      }
+    } else if (is.null(mod$imd_ls)) {
       warning(
         "`method = 'test'` requires per-tree weight distributions (unavailable ",
         "with native engine pre-computed IMD). Falling back to `method = 'mixture'`.",
@@ -177,9 +273,18 @@ mrf3_vs <- function(mod,
     }
   }
   
+  if(method == "filter" && signal == "specific") {
+    warning(
+      "`method = 'filter'` is not supported for specific signal. ",
+      "Falling back to `method = 'mixture'`.",
+      call. = FALSE
+    )
+    method <- "mixture"
+  }
+
   if(method == "mixture") {
     if(tscore) ts <- thres$ts
-    
+
     thres <- plyr::llply(
       names(weights),
       .fun = function(t) {
@@ -249,6 +354,7 @@ mrf3_vs <- function(mod,
               n_sel <- max(0L, sum(cum_fdr <= target_fdr))
               lvl_i <- if (n_sel > 0) lfdr[nonzero][ord][n_sel] + 1e-12 else 0
             } else {
+              n_sel <- 0L
               lvl_i <- 0
             }
             if (n_sel == 0L) {
@@ -314,6 +420,10 @@ mrf3_vs <- function(mod,
   if(!re_weights) {
     m <- NULL
   } 
+  if(re_fit && signal == "specific") {
+    message("Skipping refit for specific signal (self-connections not meaningful for supervised RF).")
+    re_fit <- FALSE
+  }
   if(re_fit) {
     refit <- fit_multi_forest(new_dat2, connect_list = connect_list, ntree = ntree,
                              type = mod$type, var.wt = m, ytry = mod$ytry, ...)

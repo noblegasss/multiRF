@@ -102,63 +102,12 @@ get_shared_specific_weights <- function(dat.list,
   residual_mod <- vector("list", length(dat_names))
   names(specific_W) <- names(specific_imd) <- names(specific_imd_per_tree) <- names(residual_mod) <- dat_names
 
-  # --- Build per-response weight matrices W^(k) ----------------------------
-  # For each block k, W^(k) is the modularity-weighted average of W_m's
-  # from connections where k is the response.  This ensures that the shared
-  # reconstruction X_hat^(k) = W^(k) X^(k) only uses weights optimised for
-  # predicting block k, so the residual is a clean specific signal.
-  W_per_response <- NULL
-  if (per_response_recon) {
-    W_models <- recon$W$W_models
-    model_names <- names(W_models)
-    model_score <- recon$model_score
-    if (is.null(model_score)) {
-      model_score <- setNames(rep(1.0, length(model_names)), model_names)
-    }
-
-    W_per_response <- vector("list", length(dat_names))
-    names(W_per_response) <- dat_names
-
-    for (d in dat_names) {
-      # Find models where d is the response (first element of model name)
-      resp_idx <- vapply(model_names, function(m) {
-        pair <- parse_model_pair(m)
-        identical(pair[1], d)
-      }, logical(1))
-
-      resp_models <- model_names[resp_idx]
-
-      if (length(resp_models) == 0L) {
-        # Fallback: no connection has d as response — use global W_all
-        warning(
-          "No connection has block `", d, "` as response. ",
-          "Falling back to global W_all for reconstruction.",
-          call. = FALSE
-        )
-        W_per_response[[d]] <- recon$W$W_all
-      } else {
-        # Modularity-weighted average of response-side W_m's
-        resp_scores <- model_score[resp_models]
-        resp_scores[!is.finite(resp_scores)] <- 1.0
-        resp_scores <- pmax(resp_scores, 0)
-        alpha_sum <- sum(resp_scores)
-        if (alpha_sum <= 0) {
-          resp_alpha <- rep(1.0 / length(resp_models), length(resp_models))
-        } else {
-          resp_alpha <- resp_scores / alpha_sum
-        }
-        names(resp_alpha) <- resp_models
-
-        W_per_response[[d]] <- fuse_matrix_list(
-          W_models[resp_models], resp_alpha
-        )
-        # Row-normalize the per-response fused weight
-        rs <- rowSums(W_per_response[[d]])
-        rs[rs <= 0 | !is.finite(rs)] <- 1
-        W_per_response[[d]] <- W_per_response[[d]] / rs
-      }
-    }
-  }
+  # --- Per-response weight matrices W^(k) -----------------------------------
+  # Pre-computed in get_reconstr_matrix() and stored in recon$W$W_per_response.
+  # Each W^(k) = sum_{i != k} alpha_{ki} W_{ki}, normalised within the
+  # response-k subset and row-normalised, so X_hat = W^(k) X^(k) is a proper
+  # linear smoother using only forests trained to predict block k.
+  W_per_response <- if (per_response_recon) recon$W$W_per_response else NULL
 
   for (d in dat_names) {
     X <- as.matrix(dat.list[[d]])

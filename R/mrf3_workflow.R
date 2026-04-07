@@ -109,6 +109,7 @@ mrf3_fit <- function(dat.list,
                           top_v = NULL,
                           model_top_v = NULL,
                           recon_fusion = c("weighted", "uniform"),
+                          global_fusion = c("average", "pmin"),
                           score_power = 1,
                           score_floor = 0,
                           fallback_uniform = TRUE,
@@ -156,6 +157,7 @@ mrf3_fit <- function(dat.list,
   filter_mode <- match.arg(filter_mode)
   filter_method <- match.arg(filter_method)
   recon_fusion <- match.arg(recon_fusion)
+  global_fusion <- match.arg(global_fusion)
   if (!is.null(top_v)) {
     if (!is.numeric(top_v) || length(top_v) != 1L || !is.finite(top_v) || top_v <= 0) {
       stop("`top_v` must be NULL or a single positive integer.")
@@ -344,6 +346,7 @@ mrf3_fit <- function(dat.list,
     connection_score = stage_connection$score,
     recon_args = list(
       recon_fusion = recon_fusion,
+      global_fusion = global_fusion,
       score_power = score_power,
       score_floor = score_floor,
       fallback_uniform = fallback_uniform,
@@ -611,6 +614,7 @@ mrf3_fit <- function(dat.list,
         connection_score = stage_connection$score,
         recon_args = list(
           recon_fusion = recon_fusion,
+          global_fusion = global_fusion,
           score_power = score_power,
           score_floor = score_floor,
           fallback_uniform = fallback_uniform,
@@ -658,6 +662,7 @@ mrf3_fit <- function(dat.list,
       imd_computed = !is.null(stage_imd),
       compact_output = isTRUE(compact_output),
       recon_fusion = recon_fusion,
+      global_fusion = global_fusion,
       score_power = score_power,
       score_floor = score_floor,
       fallback_uniform = fallback_uniform,
