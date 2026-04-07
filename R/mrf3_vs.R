@@ -88,9 +88,7 @@ mrf3_vs <- function(mod,
       ## Format needed by test_fn: list of 1 pseudo-connection, each = list
       ## of ntree elements, each = named list(block = vec)
       wf_weights_ls <- NULL
-      ## imd_per_tree lives under spec$weights after merge_cluster_outputs,
-      ## but directly under spec when called from get_shared_specific_weights
-      spec_pt <- if (!is.null(spec$imd_per_tree)) spec$imd_per_tree else spec$weights$imd_per_tree
+      spec_pt <- spec$imd_per_tree
       if (!is.null(spec_pt) && length(spec_pt) > 0L) {
         block_names <- names(spec_pt)
         ## Each block's unsupervised RF is independent, so wrap each as a
